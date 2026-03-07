@@ -202,9 +202,9 @@ vsae/
 
 | Member | Role | Hardware |
 |--------|------|----------|
-| Jason | Ablation Engine + FastAPI | MacBook M4 Air (MPS) |
-| Mithun | Literature Research + Embedding Module | Intel Core Ultra i5 125H |
-| Nahyan | GPU Testing + Frontend | Intel i7 13th Gen + RTX 4050 |
+| Irudaya Jason J | Ablation Engine + FastAPI | MacBook M4 Air (MPS) |
+| Mithun A | Literature Research + Embedding Module | Intel Core Ultra i5 125H |
+| Mohammed Nahyan Khan | GPU Testing + Frontend | Intel i7 13th Gen + RTX 4050 |
 
 ---
 
