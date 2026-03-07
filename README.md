@@ -17,10 +17,10 @@ VSAE is an open-source API tool that acts as a **surgical "delete button"** for 
 
 ### The Problem
 When AI models like GPT-2, Llama, or Mistral are trained on billions of documents, they can accidentally memorize:
-- 🔒 Private medical records
-- ©️ Copyrighted materials
-- 📄 Confidential company documents
-- 👤 Personal communications
+- Private medical records
+- Copyrighted materials
+- Confidential company documents
+- Personal communications
 
 Laws like **GDPR**, **CCPA**, and **PDPB** legally require companies to delete this data on request — but existing solutions are either too expensive or ineffective.
 
@@ -35,7 +35,7 @@ Where `v` is the forget vector representing the concept to be erased and `W` is 
 
 ---
 
-## ⚙️ How It Works
+## How It Works
 
 ```
 Input Text (concept to forget)
@@ -51,18 +51,18 @@ Output Module → returns modified model weights
 
 ---
 
-## 🚀 Features
+## Features
 
-- ✅ **Surgical knowledge removal** — targets only the relevant weight matrices
-- ✅ **No retraining required** — works directly on existing model weights
-- ✅ **Rollback support** — undo any ablation instantly
-- ✅ **Evaluation suite** — proves the concept was erased with 3 test methodologies
-- ✅ **REST API** — simple FastAPI wrapper for easy integration
-- ✅ **Apple Silicon (MPS) + CUDA support** — runs on Mac M-series and NVIDIA GPUs
+- **Surgical knowledge removal** — targets only the relevant weight matrices
+- **No retraining required** — works directly on existing model weights
+- **Rollback support** — undo any ablation instantly
+- **Evaluation suite** — proves the concept was erased with 3 test methodologies
+- **REST API** — simple FastAPI wrapper for easy integration
+- **Apple Silicon (MPS) + CUDA support** — runs on Mac M-series and NVIDIA GPUs
 
 ---
 
-## 🧪 Evaluation Methods
+## Evaluation Methods
 
 | Method | What it checks |
 |--------|---------------|
@@ -72,7 +72,7 @@ Output Module → returns modified model weights
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
@@ -86,7 +86,7 @@ Output Module → returns modified model weights
 
 ---
 
-## 📡 API Endpoints
+## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -122,7 +122,7 @@ POST /ablate
 
 ---
 
-## 📦 Installation
+## Installation
 
 ```bash
 # Clone the repo
@@ -145,7 +145,7 @@ pip install transformers numpy fastapi uvicorn pydantic pytest
 
 ---
 
-## ▶️ Running the API
+## Running the API
 
 ```bash
 uvicorn backend.main:app --reload
@@ -157,7 +157,7 @@ Then open:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 vsae/
@@ -176,7 +176,7 @@ vsae/
 
 ---
 
-## 🗓️ Development Timeline
+## Development Timeline
 
 | Weeks | Milestone |
 |-------|-----------|
@@ -198,7 +198,7 @@ vsae/
 
 ---
 
-## 👥 Team
+## Founders
 
 | Member | Role | Hardware |
 |--------|------|----------|
@@ -208,7 +208,7 @@ vsae/
 
 ---
 
-## 📚 References
+## References
 
 - Cao & Yang (2015) — Machine Unlearning
 - Golatkar et al (2020) — Eternal Sunshine of the Spotless Net
