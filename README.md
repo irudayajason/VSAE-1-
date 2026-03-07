@@ -11,7 +11,7 @@
 
 ---
 
-## 🔍 What is VSAE?
+## What is VSAE?
 
 VSAE is an open-source API tool that acts as a **surgical "delete button"** for AI models. It allows developers to remove specific concepts, facts, or private data from a trained LLM by mathematically modifying its internal weight matrices — without the need for expensive retraining.
 
