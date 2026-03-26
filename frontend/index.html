@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="VSAE — Surgically remove specific knowledge from a trained LLM without retraining.">
+    <title>VSAE — Vector Space Ablation Engine</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+    <div class="app">
+        <!-- ── Header ─────────────────────────────── -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">V</div>
+                <div>
+                    <div class="logo-text">VSAE</div>
+                    <div class="logo-subtitle">Vector Space Ablation Engine</div>
+                </div>
+            </div>
+            <div class="header-status">
+                <div class="status-badge" id="model-badge">
+                    <span class="status-dot"></span>
+                    <span id="model-status-text">Loading model...</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- ── Main Content ───────────────────────── -->
+        <div class="main-content">
+
+            <!-- ── Left: Ablation Panel ───────────── -->
+            <div class="panel ablation-panel">
+                <div class="panel-header">
+                    <div class="panel-icon">🔬</div>
+                    <div>
+                        <div class="panel-title">Ablation Engine</div>
+                        <div class="panel-subtitle">Erase concepts from model weights</div>
+                    </div>
+                </div>
+
+                <div class="ablation-body">
+                    <!-- Forget Text Input -->
+                    <div class="input-group">
+                        <label class="input-label" for="forget-text">Concept to Forget</label>
+                        <textarea
+                            class="forget-textarea"
+                            id="forget-text"
+                            placeholder="Enter the text or concept to erase...&#10;&#10;Example: Harry Potter lives at 4 Privet Drive"
+                            rows="4"
+                        ></textarea>
+                    </div>
+
+                    <!-- Config -->
+                    <div class="config-row">
+                        <div class="config-item">
+                            <label class="input-label" for="top-k">Top-K Layers</label>
+                            <select class="config-select" id="top-k">
+                                <option value="1">1 Layer</option>
+                                <option value="2">2 Layers</option>
+                                <option value="3" selected>3 Layers</option>
+                                <option value="5">5 Layers</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label class="input-label" for="model-select">Model</label>
+                            <select class="config-select" id="model-select" onchange="handleModelChange()">
+                                <option value="gpt2">GPT-2 (117M)</option>
+                                <option value="gpt2-medium">GPT-2 Medium (355M)</option>
+                                <option value="gpt2-large">GPT-2 Large (774M)</option>
+                                <option value="gpt2-xl">GPT-2 XL (1.5B)</option>
+                                <option value="microsoft/phi-2">Phi-2 (2.7B) ⭐</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Ablate Button -->
+                    <button class="ablate-btn" id="ablate-btn" onclick="handleAblate()">
+                        <div class="spinner"></div>
+                        <span class="btn-text">⚡ Run Ablation</span>
+                    </button>
+
+                    <!-- Status Results -->
+                    <div class="status-section" id="status-section">
+                        <div class="empty-status" id="empty-status">
+                            <div class="empty-status-icon">🧠</div>
+                            <div class="empty-status-text">
+                                Enter a concept above and click<br>
+                                <strong>Run Ablation</strong> to erase it from the model
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rollback Button -->
+                    <button class="rollback-btn" id="rollback-btn" onclick="handleRollback()" disabled>
+                        ↩ Rollback to Original Weights
+                    </button>
+                </div>
+            </div>
+
+            <!-- ── Right: Chat Panel ──────────────── -->
+            <div class="panel chat-panel">
+                <div class="panel-header">
+                    <div class="panel-icon">💬</div>
+                    <div>
+                        <div class="panel-title" id="chat-panel-title">Chat with GPT-2</div>
+                        <div class="panel-subtitle">Probe the model before &amp; after ablation</div>
+                    </div>
+                </div>
+
+                <div class="chat-body" id="chat-body">
+                    <!-- Welcome Screen -->
+                    <div class="chat-welcome" id="chat-welcome">
+                        <div class="chat-welcome-icon">🤖</div>
+                        <h3 id="chat-welcome-title">Talk to GPT-2</h3>
+                        <p>Ask questions to test what the model knows. After ablation, ask the same question to see proof of concept erasure.</p>
+                        <div class="quick-prompts">
+                            <button class="quick-prompt" onclick="sendQuickPrompt('Where does Harry Potter live?')">Where does Harry Potter live?</button>
+                            <button class="quick-prompt" onclick="sendQuickPrompt('The capital of France is')">The capital of France is</button>
+                            <button class="quick-prompt" onclick="sendQuickPrompt('Tell me about Albert Einstein')">Tell me about Einstein</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat Input -->
+                <div class="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <textarea
+                            class="chat-input"
+                            id="chat-input"
+                            placeholder="Ask GPT-2 something..."
+                            rows="1"
+                            onkeydown="handleChatKeyDown(event)"
+                            oninput="autoResize(this)"
+                        ></textarea>
+                        <button class="send-btn" id="send-btn" onclick="handleSendChat()">
+                            ↑
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
