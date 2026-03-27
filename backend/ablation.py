@@ -4,9 +4,7 @@ from the model's weight matrices.
 
 Formula:  W_new = W - (W · v · vᵀ) / (vᵀ · v)
 
-Handles both weight layouts:
-- GPT-2 Conv1D: W shape [in_dim, out_dim]
-- Phi-2 nn.Linear: W shape [out_dim, in_dim]
+Phi-2 uses nn.Linear: W shape [out_dim, in_dim]
 """
 
 import torch
@@ -16,7 +14,7 @@ from typing import Dict, List
 from datetime import datetime, timezone
 import logging
 
-from backend.embedding import load_model, get_qkv_weights, get_weight_layout
+from backend.embedding import load_model, get_target_weights
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +32,14 @@ def _weight_hash(tensor: torch.Tensor) -> str:
 def apply_projection(
     W: torch.Tensor,
     v: torch.Tensor,
-    layout: str = "conv1d"
+    alpha: float = 1.5,
 ) -> torch.Tensor:
     """
     Applies orthogonal projection to remove the component of W
     along direction v.
 
-    For Conv1D layout (GPT-2):   W shape [in_dim, out_dim]
-        W_new = W - v (vᵀ W) / (vᵀ v)
-
-    For Linear layout (Phi-2):   W shape [out_dim, in_dim]
-        W_new = W - (W v) vᵀ / (vᵀ v)
+    For nn.Linear layout (Phi-2):   W shape [out_dim, in_dim]
+        W_new = W - alpha * (W v) vᵀ / (vᵀ v)
     """
     v = v.to(W.device).to(W.dtype).flatten()
 
@@ -53,18 +48,11 @@ def apply_projection(
         logger.warning("Forget vector has near-zero norm, skipping projection")
         return W
 
-    if layout == "conv1d":
-        # GPT-2: W is [in_dim, out_dim]
-        # Project out v from the input dimension
-        vt_W = torch.mv(W.t(), v)       # [out_dim]
-        outer = torch.outer(v, vt_W)    # [in_dim, out_dim]
-        W_new = W - outer / v_norm_sq
-    else:
-        # nn.Linear: W is [out_dim, in_dim]
-        # Project out v from the input dimension (dim 1)
-        Wv = torch.mv(W, v)             # [out_dim]
-        outer = torch.outer(Wv, v)      # [out_dim, in_dim]
-        W_new = W - outer / v_norm_sq
+    # nn.Linear: W is [out_dim, in_dim]
+    # Project out v from the input dimension (dim 1)
+    Wv = torch.mv(W, v)             # [out_dim]
+    outer = torch.outer(Wv, v)      # [out_dim, in_dim]
+    W_new = W - alpha * outer / v_norm_sq
 
     return W_new
 
@@ -72,14 +60,12 @@ def apply_projection(
 def ablate(
     forget_vector: torch.Tensor,
     target_layers: List[Dict],
-    model_name: str = "gpt2"
+    alpha: float = 1.5,
 ) -> dict:
     """
     Main ablation function — applies orthogonal projection to target layers.
-    Handles both GPT-2 and Phi-2 weight layouts.
     """
-    model, tokenizer, device = load_model(model_name)
-    layout = get_weight_layout(model_name)
+    model, tokenizer, device = load_model()
 
     ablation_id = str(uuid.uuid4())
     backup = {}
@@ -87,7 +73,8 @@ def ablate(
 
     for layer_info in target_layers:
         layer_idx = layer_info["layer_index"]
-        weights = get_qkv_weights(model, layer_idx, model_name)
+        target_matrices = layer_info.get("target_matrices", ["W_Q", "W_K", "W_V", "dense", "fc1"])
+        weights = get_target_weights(model, layer_idx, target_matrices)
 
         for weight_name, weight_param in weights.items():
             backup_key = f"layer_{layer_idx}_{weight_name}"
@@ -96,7 +83,7 @@ def ablate(
             original_hash = _weight_hash(weight_param.data)
 
             with torch.no_grad():
-                new_weight = apply_projection(weight_param.data, forget_vector, layout)
+                new_weight = apply_projection(weight_param.data, forget_vector, alpha)
                 weight_param.data.copy_(new_weight)
 
             modified_hash = _weight_hash(weight_param.data)
@@ -123,6 +110,7 @@ def ablate(
         "targeted_layers": [l["layer_index"] for l in target_layers],
         "layer_results": layer_results,
         "status": "success",
+        "alpha": alpha,
         "correctness_check": all(r["changed"] for r in layer_results)
     }
     _ablation_metadata[ablation_id] = metadata
@@ -131,12 +119,12 @@ def ablate(
     return metadata
 
 
-def rollback(ablation_id: str, model_name: str = "gpt2") -> dict:
+def rollback(ablation_id: str) -> dict:
     """Restores the original weights from before an ablation."""
     if ablation_id not in _weight_backups:
         raise ValueError(f"No backup found for ablation_id: {ablation_id}")
 
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
     backup = _weight_backups[ablation_id]
 
     restored = []
@@ -145,7 +133,7 @@ def rollback(ablation_id: str, model_name: str = "gpt2") -> dict:
         layer_idx = int(parts[1])
         weight_name = "_".join(parts[2:])
 
-        weights = get_qkv_weights(model, layer_idx, model_name)
+        weights = get_target_weights(model, layer_idx, [weight_name])
         with torch.no_grad():
             weights[weight_name].data.copy_(original_weight)
 

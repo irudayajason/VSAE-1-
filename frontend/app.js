@@ -1,7 +1,7 @@
 /**
- * VSAE Frontend — Client-side logic
- * Handles API calls, chat, ablation workflow, model switching,
- * and side-by-side before/after proof display.
+ * VSAE Frontend — Claude-style Chat Interface
+ * Handles API calls, chat, ablation drawer, and view transitions.
+ * Phi-2 only.
  */
 
 const API_BASE = '';
@@ -10,10 +10,15 @@ const API_BASE = '';
 let currentAblationId = null;
 let chatHistory = [];
 let isProcessing = false;
+let drawerOpen = false;
+let inChatView = false;
 
 // ── Init ──────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
+    // Focus input on load
+    const input = document.getElementById('chat-input');
+    if (input) input.focus();
 });
 
 // ── Health Check ──────────────────────────────────────
@@ -22,31 +27,202 @@ async function checkHealth() {
         const res = await fetch(`${API_BASE}/health`);
         const data = await res.json();
         const badge = document.getElementById('model-status-text');
-        const modelName = data.model.includes('/') ? data.model.split('/')[1] : data.model;
-        badge.textContent = `${modelName} · ${data.device} · ${(data.parameters / 1e6).toFixed(0)}M params`;
+        badge.textContent = `Phi-2 · ${data.device} · ${data.dtype}`;
+        document.querySelector('.dot').style.background = 'var(--accent-emerald)';
     } catch (err) {
         const badge = document.getElementById('model-status-text');
-        badge.textContent = 'Connection error';
-        document.querySelector('.status-dot').style.background = 'var(--accent-red)';
+        badge.textContent = 'Phi-2 · Connection error';
+        document.querySelector('.dot').style.background = 'var(--accent-red)';
     }
 }
 
-// ── Model Switching ───────────────────────────────────
-function handleModelChange() {
-    const select = document.getElementById('model-select');
-    const modelId = select.value;
-    const displayName = select.options[select.selectedIndex].text;
+// ── View Transitions ──────────────────────────────────
 
-    // Update chat panel title
-    document.getElementById('chat-panel-title').textContent = `Chat with ${displayName.split(' (')[0]}`;
-    document.getElementById('chat-welcome-title').textContent = `Talk to ${displayName.split(' (')[0]}`;
+function switchToChatView() {
+    if (inChatView) return;
+    inChatView = true;
 
-    // Show loading hint
-    const badge = document.getElementById('model-status-text');
-    badge.textContent = `Switching to ${displayName}...`;
+    const welcome = document.getElementById('welcome-view');
+    const chatView = document.getElementById('chat-view');
+
+    welcome.classList.add('hidden');
+    chatView.classList.add('visible');
+
+    // Focus the bottom input
+    setTimeout(() => {
+        const bottomInput = document.getElementById('chat-input-bottom');
+        if (bottomInput) bottomInput.focus();
+    }, 100);
+}
+
+function resetToWelcome() {
+    inChatView = false;
+
+    const welcome = document.getElementById('welcome-view');
+    const chatView = document.getElementById('chat-view');
+
+    welcome.classList.remove('hidden');
+    chatView.classList.remove('visible');
+
+    // Clear messages
+    document.getElementById('chat-messages').innerHTML = '';
+    chatHistory = [];
+
+    // Focus the welcome input
+    const input = document.getElementById('chat-input');
+    if (input) {
+        input.value = '';
+        input.focus();
+    }
+
+    // Update sidebar
+    setActiveSidebarBtn('btn-chat');
+    closeDrawer();
+}
+
+function focusChat() {
+    setActiveSidebarBtn('btn-chat');
+    closeDrawer();
+    if (inChatView) {
+        const input = document.getElementById('chat-input-bottom');
+        if (input) input.focus();
+    } else {
+        const input = document.getElementById('chat-input');
+        if (input) input.focus();
+    }
+}
+
+function setActiveSidebarBtn(id) {
+    document.querySelectorAll('.sidebar-btn').forEach(btn => btn.classList.remove('active'));
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.add('active');
+}
+
+// ── Ablation Drawer ───────────────────────────────────
+
+function toggleDrawer() {
+    if (drawerOpen) {
+        closeDrawer();
+    } else {
+        openDrawer();
+    }
+}
+
+function openDrawer() {
+    drawerOpen = true;
+    document.getElementById('ablation-drawer').classList.add('open');
+    document.getElementById('drawer-backdrop').classList.add('visible');
+    setActiveSidebarBtn('btn-ablation');
+}
+
+function closeDrawer() {
+    drawerOpen = false;
+    document.getElementById('ablation-drawer').classList.remove('open');
+    document.getElementById('drawer-backdrop').classList.remove('visible');
+    if (!inChatView) {
+        setActiveSidebarBtn('btn-chat');
+    }
+}
+
+// ── Send Button State ─────────────────────────────────
+
+function toggleSendBtn() {
+    const welcomeInput = document.getElementById('chat-input');
+    const bottomInput = document.getElementById('chat-input-bottom');
+    const sendBtn = document.getElementById('send-btn');
+    const sendBtnBottom = document.getElementById('send-btn-bottom');
+
+    if (welcomeInput && sendBtn) {
+        const hasText = welcomeInput.value.trim().length > 0;
+        sendBtn.disabled = !hasText;
+        sendBtn.classList.toggle('active', hasText);
+    }
+    if (bottomInput && sendBtnBottom) {
+        const hasText = bottomInput.value.trim().length > 0;
+        sendBtnBottom.disabled = !hasText;
+        sendBtnBottom.classList.toggle('active', hasText);
+    }
+}
+
+// ── Chat ──────────────────────────────────────────────
+
+function getActiveInput() {
+    if (inChatView) {
+        return document.getElementById('chat-input-bottom');
+    }
+    return document.getElementById('chat-input');
+}
+
+async function handleSendChat() {
+    const input = getActiveInput();
+    const prompt = input.value.trim();
+    if (!prompt || isProcessing) return;
+
+    isProcessing = true;
+
+    // Switch to chat view if we're on welcome
+    switchToChatView();
+
+    addChatMessage('user', prompt);
+    input.value = '';
+    autoResize(input);
+    toggleSendBtn();
+
+    const typingEl = addChatMessage('assistant', null, true);
+
+    // Disable both send buttons
+    disableSendBtns(true);
+
+    try {
+        const res = await fetch(`${API_BASE}/probe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt: prompt,
+                max_tokens: 100,
+                temperature: 0.5
+            })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Generation failed');
+
+        typingEl.remove();
+        addChatMessage('assistant', data.generated_text || '(empty response)');
+
+    } catch (err) {
+        typingEl.remove();
+        addChatMessage('assistant', `Error: ${err.message}`);
+    } finally {
+        isProcessing = false;
+        disableSendBtns(false);
+        const activeInput = getActiveInput();
+        if (activeInput) activeInput.focus();
+    }
+}
+
+function sendQuickPrompt(text) {
+    const input = getActiveInput();
+    input.value = text;
+    handleSendChat();
+}
+
+function handleChatKeyDown(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        handleSendChat();
+    }
+}
+
+function disableSendBtns(disabled) {
+    const btn1 = document.getElementById('send-btn');
+    const btn2 = document.getElementById('send-btn-bottom');
+    if (btn1) btn1.disabled = disabled;
+    if (btn2) btn2.disabled = disabled;
 }
 
 // ── Ablation ──────────────────────────────────────────
+
 async function handleAblate() {
     const forgetText = document.getElementById('forget-text').value.trim();
     if (!forgetText) return;
@@ -60,34 +236,29 @@ async function handleAblate() {
     if (emptyStatus) emptyStatus.style.display = 'none';
 
     statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
-
-    addStatusCard(statusSection, '⏳', 'Pipeline', 'Running ablation pipeline... This may take a moment for larger models.', 'warning');
+    addStatusCard(statusSection, '⏳', 'Pipeline', 'Running Phi-2 ablation pipeline... This may take a moment.', 'warning');
 
     try {
         const topK = parseInt(document.getElementById('top-k').value);
-        const modelId = document.getElementById('model-select').value;
+        const alpha = parseFloat(document.getElementById('ablation-strength').value);
 
         const res = await fetch(`${API_BASE}/ablate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 forget_text: forgetText,
-                model_id: modelId,
                 top_k_layers: topK,
-                target_matrices: ['W_Q', 'W_K', 'W_V']
+                target_matrices: ['W_Q', 'W_K', 'W_V', 'dense', 'fc1'],
+                ablation_strength: alpha
             })
         });
 
         const data = await res.json();
-
         if (!res.ok) throw new Error(data.detail || 'Ablation failed');
 
-        // Clear processing card
         statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
 
         currentAblationId = data.ablation_id;
-
-        // Update health badge with new model info
         checkHealth();
 
         // 1. Layers targeted
@@ -102,10 +273,10 @@ async function handleAblate() {
         addStatusCard(statusSection, '✅', 'Weights Modified',
             `${changedCount} / ${data.layer_results.length} matrices modified`, 'success');
 
-        // 3. Before/After Proof (side-by-side)
+        // 3. Before/After Proof
         if (data.proof) {
             const proofHtml = `
-                <div style="margin-bottom: 8px; font-size: 12px; color: var(--text-muted);">
+                <div style="margin-bottom: 6px; font-size: 11px; color: var(--text-muted);">
                     Prompt: "<strong>${escapeHtml(data.proof.probe_prefix)}</strong>"
                 </div>
                 <div class="proof-comparison">
@@ -128,7 +299,7 @@ async function handleAblate() {
         addStatusCard(statusSection, '📊', 'Perplexity Score',
             `<div>Before: <strong>${data.perplexity_before}</strong> → After: <strong>${data.perplexity_after}</strong></div>
              <div style="color: ${perpChange > 0 ? 'var(--accent-emerald)' : 'var(--accent-red)'}; margin-top: 4px;">
-                ${perpChange > 0 ? '↑' : '↓'} ${Math.abs(perpChange).toFixed(2)} ${perpChange > 0 ? '— Model is confused (concept erased ✓)' : '— Minimal change'}
+                ${perpChange > 0 ? '↑' : '↓'} ${Math.abs(perpChange).toFixed(2)} ${perpChange > 0 ? '— Concept erased ✓' : '— Minimal change'}
              </div>
              <div class="perplexity-meter">
                 <div class="meter-bar"><div class="meter-fill" style="width: ${perpPercent}%"></div></div>
@@ -138,9 +309,8 @@ async function handleAblate() {
 
         // 5. Ablation ID
         addStatusCard(statusSection, '🔑', 'Ablation ID',
-            `<span style="font-size: 11px">${data.ablation_id}</span>`, 'success');
+            `<span style="font-size: 10px">${data.ablation_id}</span>`, 'success');
 
-        // Enable rollback
         document.getElementById('rollback-btn').disabled = false;
 
     } catch (err) {
@@ -153,6 +323,7 @@ async function handleAblate() {
 }
 
 // ── Rollback ──────────────────────────────────────────
+
 async function handleRollback() {
     if (!currentAblationId) return;
 
@@ -161,11 +332,10 @@ async function handleRollback() {
     btn.textContent = '↩ Rolling back...';
 
     try {
-        const modelId = document.getElementById('model-select').value;
         const res = await fetch(`${API_BASE}/rollback`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ablation_id: currentAblationId, model_id: modelId })
+            body: JSON.stringify({ ablation_id: currentAblationId })
         });
 
         const data = await res.json();
@@ -188,93 +358,33 @@ async function handleRollback() {
     }
 }
 
-// ── Chat ──────────────────────────────────────────────
-async function handleSendChat() {
-    const input = document.getElementById('chat-input');
-    const prompt = input.value.trim();
-    if (!prompt || isProcessing) return;
-
-    isProcessing = true;
-
-    const welcome = document.getElementById('chat-welcome');
-    if (welcome) welcome.style.display = 'none';
-
-    addChatMessage('user', prompt);
-    input.value = '';
-    autoResize(input);
-
-    const typingEl = addChatMessage('assistant', null, true);
-    document.getElementById('send-btn').disabled = true;
-
-    try {
-        const modelId = document.getElementById('model-select').value;
-
-        const res = await fetch(`${API_BASE}/probe`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: prompt,
-                max_tokens: 100,
-                temperature: 0.5,
-                model_id: modelId
-            })
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || 'Generation failed');
-
-        typingEl.remove();
-        addChatMessage('assistant', data.generated_text || '(empty response)');
-
-        // Update health badge (model may have switched)
-        checkHealth();
-
-    } catch (err) {
-        typingEl.remove();
-        addChatMessage('assistant', `Error: ${err.message}`);
-    } finally {
-        isProcessing = false;
-        document.getElementById('send-btn').disabled = false;
-        document.getElementById('chat-input').focus();
-    }
-}
-
-function sendQuickPrompt(text) {
-    document.getElementById('chat-input').value = text;
-    handleSendChat();
-}
-
-function handleChatKeyDown(event) {
-    if (event.key === 'Enter' && !event.shiftKey) {
-        event.preventDefault();
-        handleSendChat();
-    }
-}
-
 // ── Helpers ───────────────────────────────────────────
 
 function addChatMessage(role, text, isTyping = false) {
-    const chatBody = document.getElementById('chat-body');
-    const msgEl = document.createElement('div');
-    msgEl.className = `chat-message ${role}`;
+    const container = document.getElementById('chat-messages');
+    const row = document.createElement('div');
+    const rowClass = role === 'user' ? 'user-row' : 'assistant-row';
+    row.className = `message-row ${rowClass}`;
 
-    const avatar = role === 'user' ? '👤' : '🤖';
-    let bubbleContent;
+    const avatar = role === 'user' ? '👤' : '✦';
+    let contentHtml;
 
     if (isTyping) {
-        bubbleContent = `<div class="typing-dots"><span></span><span></span><span></span></div>`;
+        contentHtml = `<div class="typing-dots"><span></span><span></span><span></span></div>`;
     } else {
-        bubbleContent = escapeHtml(text);
+        contentHtml = escapeHtml(text);
     }
 
-    msgEl.innerHTML = `
-        <div class="chat-avatar">${avatar}</div>
-        <div class="chat-bubble">${bubbleContent}</div>
+    row.innerHTML = `
+        <div class="message-inner">
+            <div class="message-avatar">${avatar}</div>
+            <div class="message-content">${contentHtml}</div>
+        </div>
     `;
 
-    chatBody.appendChild(msgEl);
-    chatBody.scrollTop = chatBody.scrollHeight;
-    return msgEl;
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+    return row;
 }
 
 function addStatusCard(container, icon, label, value, type = '', isHtml = false) {
@@ -303,5 +413,5 @@ function escapeHtml(text) {
 
 function autoResize(textarea) {
     textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+    textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px';
 }

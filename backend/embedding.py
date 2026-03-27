@@ -1,14 +1,12 @@
 """
 Embedding Module — handles model loading, forget vector extraction, and text generation.
 
-Supports multiple model architectures:
-- GPT-2 family (gpt2, gpt2-medium, gpt2-large, gpt2-xl)
-- Phi-2 (microsoft/phi-2)
+Supports: Phi-2 (microsoft/phi-2) only.
 """
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from typing import Optional, Dict
+from typing import Optional, List
 import logging
 
 # Set up logging
@@ -19,43 +17,9 @@ logger = logging.getLogger(__name__)
 _model: Optional[AutoModelForCausalLM] = None
 _tokenizer: Optional[AutoTokenizer] = None
 _device: Optional[torch.device] = None
-_current_model_name: Optional[str] = None
 
-
-# ── Model Architecture Registry ───────────────────────
-# Defines how to access layers/attention for each model type
-MODEL_REGISTRY = {
-    "gpt2": {
-        "display_name": "GPT-2 (117M)",
-        "family": "gpt2",
-    },
-    "gpt2-medium": {
-        "display_name": "GPT-2 Medium (355M)",
-        "family": "gpt2",
-    },
-    "gpt2-large": {
-        "display_name": "GPT-2 Large (774M)",
-        "family": "gpt2",
-    },
-    "gpt2-xl": {
-        "display_name": "GPT-2 XL (1.5B)",
-        "family": "gpt2",
-    },
-    "microsoft/phi-2": {
-        "display_name": "Phi-2 (2.7B)",
-        "family": "phi",
-    },
-}
-
-
-def get_model_family(model_name: str) -> str:
-    """Returns the architecture family for a model name."""
-    if model_name in MODEL_REGISTRY:
-        return MODEL_REGISTRY[model_name]["family"]
-    # Fallback: guess from model type after loading
-    if "phi" in model_name.lower():
-        return "phi"
-    return "gpt2"
+MODEL_ID = "microsoft/phi-2"
+MODEL_DISPLAY_NAME = "Phi-2 (2.7B)"
 
 
 def get_device() -> torch.device:
@@ -68,106 +32,70 @@ def get_device() -> torch.device:
         return torch.device("cpu")
 
 
-def load_model(model_name: str = "gpt2"):
+def load_model():
     """
-    Loads model and tokenizer into memory.
-    Handles model switching — if a different model is requested,
-    unloads the old one first (important for 16GB RAM).
+    Loads Phi-2 model and tokenizer into memory.
+    Uses float16 to reduce memory usage (~5GB instead of ~10GB).
     """
-    global _model, _tokenizer, _device, _current_model_name
+    global _model, _tokenizer, _device
 
-    if _model is not None and _current_model_name == model_name:
+    if _model is not None:
         logger.info("Model already loaded, reusing.")
         return _model, _tokenizer, _device
 
-    # Unload previous model if different
-    if _model is not None and _current_model_name != model_name:
-        logger.info(f"Switching model: {_current_model_name} → {model_name}")
-        del _model
-        del _tokenizer
-        _model = None
-        _tokenizer = None
-        torch.mps.empty_cache() if torch.backends.mps.is_available() else None
-        import gc; gc.collect()
-
-    logger.info(f"Loading {model_name}...")
+    logger.info(f"Loading {MODEL_ID} in float16...")
     _device = get_device()
 
-    _tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    _tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     if _tokenizer.pad_token is None:
         _tokenizer.pad_token = _tokenizer.eos_token
 
     _model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        torch_dtype=torch.float32,
+        MODEL_ID,
+        torch_dtype=torch.float16,
         trust_remote_code=True,
         output_hidden_states=True
     ).to(_device)
 
     _model.eval()
-    _current_model_name = model_name
-    logger.info(f"Model {model_name} loaded on {_device}")
+    logger.info(f"Model {MODEL_ID} loaded on {_device} (float16)")
     return _model, _tokenizer, _device
 
 
 def get_transformer_layers(model):
-    """Returns the list of transformer layers regardless of architecture."""
-    family = get_model_family(_current_model_name or "gpt2")
-
-    if family == "gpt2":
-        return model.transformer.h
-    elif family == "phi":
-        return model.model.layers
-    else:
-        raise ValueError(f"Unsupported model family: {family}")
+    """Returns the list of transformer layers (Phi-2 architecture)."""
+    return model.model.layers
 
 
-def get_attention_module(layer, model_name: str = None):
-    """Returns the attention module from a transformer layer."""
-    family = get_model_family(model_name or _current_model_name or "gpt2")
-
-    if family == "gpt2":
-        return layer.attn
-    elif family == "phi":
-        return layer.self_attn
-    else:
-        raise ValueError(f"Unsupported model family: {family}")
+def get_attention_module(layer):
+    """Returns the attention module from a transformer layer (Phi-2 architecture)."""
+    return layer.self_attn
 
 
-def get_qkv_weights(model, layer_idx: int, model_name: str = None) -> Dict[str, torch.nn.Parameter]:
+def get_target_weights(model, layer_idx: int, target_matrices: List[str]):
     """
-    Returns the QKV weight parameters for a given layer.
-
-    GPT-2:  Combined c_attn [in, 3*out] — Conv1D (weight layout: [in_dim, out_dim])
-    Phi-2:  Separate q_proj, k_proj, v_proj — nn.Linear (weight layout: [out_dim, in_dim])
+    Returns the explicitly requested weight parameters for a given layer.
+    Phi-2 has:
+      - Attention: q_proj, k_proj, v_proj, dense
+      - MLP: fc1, fc2
+    Only matrices where in_features == hidden_size can be projected effectively.
     """
-    family = get_model_family(model_name or _current_model_name or "gpt2")
     layers = get_transformer_layers(model)
     layer = layers[layer_idx]
 
-    if family == "gpt2":
-        return {"c_attn": layer.attn.c_attn.weight}
-    elif family == "phi":
-        return {
-            "q_proj": layer.self_attn.q_proj.weight,
-            "k_proj": layer.self_attn.k_proj.weight,
-            "v_proj": layer.self_attn.v_proj.weight,
-        }
-    else:
-        raise ValueError(f"Unsupported model family: {family}")
-
-
-def get_weight_layout(model_name: str = None) -> str:
-    """
-    Returns the weight matrix layout convention.
-
-    'conv1d' → shape [in_dim, out_dim]  (GPT-2)
-    'linear' → shape [out_dim, in_dim]  (Phi-2, most modern models)
-    """
-    family = get_model_family(model_name or _current_model_name or "gpt2")
-    if family == "gpt2":
-        return "conv1d"
-    return "linear"
+    weights = {}
+    if "W_Q" in target_matrices or "q_proj" in target_matrices:
+        weights["W_Q"] = layer.self_attn.q_proj.weight
+    if "W_K" in target_matrices or "k_proj" in target_matrices:
+        weights["W_K"] = layer.self_attn.k_proj.weight
+    if "W_V" in target_matrices or "v_proj" in target_matrices:
+        weights["W_V"] = layer.self_attn.v_proj.weight
+    if "dense" in target_matrices:
+        weights["dense"] = layer.self_attn.dense.weight
+    if "fc1" in target_matrices:
+        weights["fc1"] = layer.mlp.fc1.weight
+        
+    return weights
 
 
 def normalize_vector(v: torch.Tensor) -> torch.Tensor:
@@ -178,7 +106,7 @@ def normalize_vector(v: torch.Tensor) -> torch.Tensor:
     return v / norm
 
 
-def get_forget_vector(forget_text: str, model_name: str = "gpt2") -> torch.Tensor:
+def get_forget_vector(forget_text: str) -> torch.Tensor:
     """
     Converts forget_text into a forget vector v.
 
@@ -192,7 +120,7 @@ def get_forget_vector(forget_text: str, model_name: str = "gpt2") -> torch.Tenso
     Returns:
         v: Tensor of shape [hidden_dim]
     """
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
 
     inputs = tokenizer(
         forget_text,
@@ -216,7 +144,7 @@ def get_forget_vector(forget_text: str, model_name: str = "gpt2") -> torch.Tenso
 
     # Average across token positions → [hidden_dim]
     attention_mask = inputs["attention_mask"].unsqueeze(-1).float()
-    sum_hidden = (last_hidden_state * attention_mask).sum(dim=1)
+    sum_hidden = (last_hidden_state.float() * attention_mask).sum(dim=1)
     count = attention_mask.sum(dim=1)
     v = (sum_hidden / count).squeeze(0)
 
@@ -233,13 +161,12 @@ def generate_text(
     prompt: str,
     max_tokens: int = 100,
     temperature: float = 0.5,
-    model_name: str = "gpt2"
 ) -> str:
     """
     Generates text from the model given a prompt.
     Formats the prompt as Q&A for better coherence.
     """
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
 
     formatted_prompt = f"Question: {prompt}\nAnswer:"
 
@@ -279,7 +206,6 @@ def generate_text(
 def complete_text(
     prefix: str,
     max_tokens: int = 40,
-    model_name: str = "gpt2"
 ) -> str:
     """
     Pure text completion — no Q&A formatting.
@@ -287,7 +213,7 @@ def complete_text(
 
     Example: complete_text("Harry Potter lives at") → "4 Privet Drive..."
     """
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
 
     inputs = tokenizer(
         prefix,
@@ -318,12 +244,12 @@ def get_model_info() -> dict:
     """Returns info about the currently loaded model."""
     model, tokenizer, device = load_model()
     return {
-        "model": _current_model_name or "gpt2",
+        "model": MODEL_ID,
+        "display_name": MODEL_DISPLAY_NAME,
         "device": str(device),
         "hidden_dim": model.config.hidden_size,
         "num_layers": model.config.num_hidden_layers,
         "vocab_size": model.config.vocab_size,
         "parameters": sum(p.numel() for p in model.parameters()),
-        "family": get_model_family(_current_model_name or "gpt2"),
-        "available_models": {k: v["display_name"] for k, v in MODEL_REGISTRY.items()}
+        "dtype": "float16",
     }

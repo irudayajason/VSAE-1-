@@ -17,10 +17,7 @@ from backend.embedding import load_model
 logger = logging.getLogger(__name__)
 
 
-def compute_perplexity(
-    text: str,
-    model_name: str = "gpt2"
-) -> float:
+def compute_perplexity(text: str) -> float:
     """
     Computes perplexity of the model on the given text.
     Higher perplexity = model is more "confused" by the text.
@@ -28,7 +25,7 @@ def compute_perplexity(
     A successful ablation should cause perplexity on the forget_text
     to spike significantly.
     """
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
 
     inputs = tokenizer(
         text,
@@ -50,10 +47,7 @@ def compute_perplexity(
     return perplexity
 
 
-def membership_inference_attack(
-    text: str,
-    model_name: str = "gpt2"
-) -> Dict:
+def membership_inference_attack(text: str) -> Dict:
     """
     Membership Inference Attack — checks if the model "recognizes" the text.
 
@@ -63,7 +57,7 @@ def membership_inference_attack(
     Returns:
         Dict with loss, perplexity, and a verdict
     """
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
 
     inputs = tokenizer(
         text,
@@ -99,7 +93,6 @@ def membership_inference_attack(
 def direct_probe(
     prompt: str,
     max_tokens: int = 50,
-    model_name: str = "gpt2"
 ) -> str:
     """
     Directly probes the model by generating text from a prompt.
@@ -107,7 +100,7 @@ def direct_probe(
     After ablation, the model should produce incoherent or wrong
     answers to prompts about the erased concept.
     """
-    model, tokenizer, device = load_model(model_name)
+    model, tokenizer, device = load_model()
 
     inputs = tokenizer(
         prompt,
@@ -140,7 +133,6 @@ def direct_probe(
 def run_full_evaluation(
     forget_text: str,
     probe_prompts: List[str] = None,
-    model_name: str = "gpt2"
 ) -> Dict:
     """
     Runs all three evaluation methods and returns a comprehensive report.
@@ -149,16 +141,15 @@ def run_full_evaluation(
         forget_text: The text that was supposed to be forgotten
         probe_prompts: Optional list of prompts to test. If None, uses
                        the first few words of forget_text as a prompt.
-        model_name: Model identifier
 
     Returns:
         Full evaluation report dict
     """
     # 1. Perplexity
-    perplexity = compute_perplexity(forget_text, model_name)
+    perplexity = compute_perplexity(forget_text)
 
     # 2. MIA
-    mia_result = membership_inference_attack(forget_text, model_name)
+    mia_result = membership_inference_attack(forget_text)
 
     # 3. Direct probing
     if probe_prompts is None:
@@ -168,7 +159,7 @@ def run_full_evaluation(
 
     probe_results = []
     for prompt in probe_prompts:
-        generated = direct_probe(prompt, max_tokens=50, model_name=model_name)
+        generated = direct_probe(prompt, max_tokens=50)
         probe_results.append({
             "prompt": prompt,
             "generated_text": generated

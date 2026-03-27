@@ -5,18 +5,18 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import logging
 
-from backend.embedding import (
-    get_forget_vector, get_model_info, generate_text,
-    complete_text, MODEL_REGISTRY
-)
+from backend.embedding import get_forget_vector, get_model_info, generate_text, complete_text
 from backend.locator import find_target_layers
 from backend.ablation import ablate, rollback, get_active_ablations
 from backend.evaluate import run_full_evaluation, compute_perplexity
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Vector Space Ablation Engine",
-    description="Surgical knowledge removal from LLMs",
+    description="Surgical knowledge removal from LLMs — Phi-2",
     version="1.0.0"
 )
 
@@ -33,28 +33,24 @@ app.add_middleware(
 # ── Request schemas ────────────────────────────────────
 class ForgetRequest(BaseModel):
     forget_text: str
-    model_id: str = "gpt2"
 
 class AblateRequest(BaseModel):
     forget_text: str
-    model_id: str = "gpt2"
     top_k_layers: int = 3
-    target_matrices: List[str] = ["W_Q", "W_K", "W_V"]
+    target_matrices: List[str] = ["W_Q", "W_K", "W_V", "dense", "fc1"]
+    ablation_strength: float = 1.5
 
 class ProbeRequest(BaseModel):
     prompt: str
     max_tokens: int = 100
     temperature: float = 0.5
-    model_id: str = "gpt2"
 
 class EvaluateRequest(BaseModel):
     forget_text: str
     probe_prompts: Optional[List[str]] = None
-    model_id: str = "gpt2"
 
 class RollbackRequest(BaseModel):
     ablation_id: str
-    model_id: str = "gpt2"
 
 
 # ── Endpoints ──────────────────────────────────────────
@@ -70,23 +66,12 @@ def health():
     }
 
 
-@app.get("/models")
-def list_models():
-    """Returns list of available models."""
-    return {
-        "models": [
-            {"id": k, "name": v["display_name"], "family": v["family"]}
-            for k, v in MODEL_REGISTRY.items()
-        ]
-    }
-
-
 @app.post("/embed")
 def embed(request: ForgetRequest):
     if not request.forget_text.strip():
         raise HTTPException(status_code=400, detail="forget_text cannot be empty")
 
-    v = get_forget_vector(request.forget_text, request.model_id)
+    v = get_forget_vector(request.forget_text)
 
     return {
         "forget_text": request.forget_text,
@@ -114,34 +99,32 @@ def ablate_endpoint(request: AblateRequest):
 
     try:
         # Build a completion prefix from the forget text
-        # Use first ~5 words as the prefix for probing
         words = request.forget_text.split()
         probe_prefix = " ".join(words[:min(5, len(words))])
 
         # Step 1: Probe BEFORE ablation
-        before_completion = complete_text(probe_prefix, max_tokens=40, model_name=request.model_id)
+        before_completion = complete_text(probe_prefix, max_tokens=40)
 
         # Step 2: Get forget vector
-        v = get_forget_vector(request.forget_text, request.model_id)
+        v = get_forget_vector(request.forget_text)
 
         # Step 3: Find target layers
         target_layers = find_target_layers(
             request.forget_text,
             top_k=request.top_k_layers,
-            model_name=request.model_id
         )
 
         # Step 4: Pre-ablation perplexity
-        pre_perplexity = compute_perplexity(request.forget_text, request.model_id)
+        pre_perplexity = compute_perplexity(request.forget_text)
 
         # Step 5: Apply ablation
-        result = ablate(v, target_layers, request.model_id)
+        result = ablate(v, target_layers, alpha=request.ablation_strength)
 
         # Step 6: Post-ablation perplexity
-        post_perplexity = compute_perplexity(request.forget_text, request.model_id)
+        post_perplexity = compute_perplexity(request.forget_text)
 
         # Step 7: Probe AFTER ablation
-        after_completion = complete_text(probe_prefix, max_tokens=40, model_name=request.model_id)
+        after_completion = complete_text(probe_prefix, max_tokens=40)
 
         # Build response
         result["forget_text"] = request.forget_text
@@ -169,17 +152,24 @@ def probe_endpoint(request: ProbeRequest):
         raise HTTPException(status_code=400, detail="prompt cannot be empty")
 
     try:
+        # Guardrail check
+        active_ablations = get_active_ablations()
+        if len(active_ablations) > 0:
+            prompt_perplexity = compute_perplexity(request.prompt)
+            if prompt_perplexity > 100.0:
+                logger.info(f"Guardrail triggered! Prompt perplexity ({prompt_perplexity:.2f}) > 100.0")
+                return {"generated_text": "I have no information on that topic."}
+
+        # Generate normally
         generated = generate_text(
             request.prompt,
             max_tokens=request.max_tokens,
             temperature=request.temperature,
-            model_name=request.model_id
         )
 
         return {
             "prompt": request.prompt,
             "generated_text": generated,
-            "model_id": request.model_id,
             "status": "success"
         }
 
@@ -196,7 +186,6 @@ def evaluate_endpoint(request: EvaluateRequest):
         report = run_full_evaluation(
             request.forget_text,
             probe_prompts=request.probe_prompts,
-            model_name=request.model_id
         )
 
         return {**report, "status": "success"}
@@ -208,7 +197,7 @@ def evaluate_endpoint(request: EvaluateRequest):
 @app.post("/rollback")
 def rollback_endpoint(request: RollbackRequest):
     try:
-        result = rollback(request.ablation_id, request.model_id)
+        result = rollback(request.ablation_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

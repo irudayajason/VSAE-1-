@@ -3,144 +3,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="VSAE — Surgically remove specific knowledge from a trained LLM without retraining.">
+    <meta name="description" content="VSAE — Surgically remove specific knowledge from Phi-2 without retraining.">
     <title>VSAE — Vector Space Ablation Engine</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
 <body>
     <div class="app">
-        <!-- ── Header ─────────────────────────────── -->
-        <header class="header">
-            <div class="logo">
-                <div class="logo-icon">V</div>
-                <div>
-                    <div class="logo-text">VSAE</div>
-                    <div class="logo-subtitle">Vector Space Ablation Engine</div>
-                </div>
+
+        <!-- ── Sidebar ─────────────────────────────── -->
+        <nav class="sidebar">
+            <div class="sidebar-top">
+                <!-- New Chat -->
+                <button class="sidebar-btn" id="btn-new-chat" onclick="resetToWelcome()" title="New Chat">
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <div class="sidebar-divider"></div>
+                <!-- Ablation -->
+                <button class="sidebar-btn" id="btn-ablation" onclick="toggleDrawer()" title="Ablation Engine">
+                    <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </button>
+                <!-- Chat (active by default) -->
+                <button class="sidebar-btn active" id="btn-chat" onclick="focusChat()" title="Chat">
+                    <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                </button>
+                <!-- History -->
+                <button class="sidebar-btn" id="btn-history" title="Ablation History" onclick="toggleDrawer()">
+                    <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </button>
             </div>
-            <div class="header-status">
-                <div class="status-badge" id="model-badge">
-                    <span class="status-dot"></span>
-                    <span id="model-status-text">Loading model...</span>
-                </div>
+            <div class="sidebar-bottom">
+                <!-- Settings -->
+                <button class="sidebar-btn" id="btn-settings" title="Settings">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                </button>
             </div>
-        </header>
+        </nav>
 
-        <!-- ── Main Content ───────────────────────── -->
-        <div class="main-content">
+        <!-- ── Main Area ───────────────────────────── -->
+        <div class="main-area">
 
-            <!-- ── Left: Ablation Panel ───────────── -->
-            <div class="panel ablation-panel">
-                <div class="panel-header">
-                    <div class="panel-icon">🔬</div>
-                    <div>
-                        <div class="panel-title">Ablation Engine</div>
-                        <div class="panel-subtitle">Erase concepts from model weights</div>
-                    </div>
+            <!-- Welcome View -->
+            <div class="welcome-view" id="welcome-view">
+
+                <div class="model-badge-top" id="model-badge">
+                    <span class="dot"></span>
+                    <span id="model-status-text">Phi-2 · Loading...</span>
                 </div>
 
-                <div class="ablation-body">
-                    <!-- Forget Text Input -->
-                    <div class="input-group">
-                        <label class="input-label" for="forget-text">Concept to Forget</label>
-                        <textarea
-                            class="forget-textarea"
-                            id="forget-text"
-                            placeholder="Enter the text or concept to erase...&#10;&#10;Example: Harry Potter lives at 4 Privet Drive"
-                            rows="4"
-                        ></textarea>
-                    </div>
+                <!-- Spark icon -->
+                <div class="welcome-icon">
+                    <svg viewBox="0 0 32 32" fill="none">
+                        <path class="welcome-spark" d="M16 2 L18.5 12 L28 14 L18.5 16.5 L16 28 L13.5 16.5 L4 14 L13.5 12 Z"/>
+                        <path class="welcome-spark" d="M24 4 L25 8 L29 9 L25 10 L24 14 L23 10 L19 9 L23 8 Z" opacity="0.6"/>
+                    </svg>
+                </div>
 
-                    <!-- Config -->
-                    <div class="config-row">
-                        <div class="config-item">
-                            <label class="input-label" for="top-k">Top-K Layers</label>
-                            <select class="config-select" id="top-k">
-                                <option value="1">1 Layer</option>
-                                <option value="2">2 Layers</option>
-                                <option value="3" selected>3 Layers</option>
-                                <option value="5">5 Layers</option>
-                            </select>
+                <h1 class="welcome-heading">
+                    Welcome to <span class="name">VSAE</span>
+                </h1>
+
+                <!-- Chat Input -->
+                <div class="input-container">
+                    <div class="input-box" id="input-box-welcome">
+                        <div class="input-main">
+                            <textarea
+                                class="input-textarea"
+                                id="chat-input"
+                                placeholder="Ask Phi-2 anything..."
+                                rows="1"
+                                onkeydown="handleChatKeyDown(event)"
+                                oninput="autoResize(this); toggleSendBtn()"
+                            ></textarea>
                         </div>
-                        <div class="config-item">
-                            <label class="input-label" for="model-select">Model</label>
-                            <select class="config-select" id="model-select" onchange="handleModelChange()">
-                                <option value="gpt2">GPT-2 (117M)</option>
-                                <option value="gpt2-medium">GPT-2 Medium (355M)</option>
-                                <option value="gpt2-large">GPT-2 Large (774M)</option>
-                                <option value="gpt2-xl">GPT-2 XL (1.5B)</option>
-                                <option value="microsoft/phi-2">Phi-2 (2.7B) ⭐</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Ablate Button -->
-                    <button class="ablate-btn" id="ablate-btn" onclick="handleAblate()">
-                        <div class="spinner"></div>
-                        <span class="btn-text">⚡ Run Ablation</span>
-                    </button>
-
-                    <!-- Status Results -->
-                    <div class="status-section" id="status-section">
-                        <div class="empty-status" id="empty-status">
-                            <div class="empty-status-icon">🧠</div>
-                            <div class="empty-status-text">
-                                Enter a concept above and click<br>
-                                <strong>Run Ablation</strong> to erase it from the model
+                        <div class="input-actions">
+                            <div class="input-action-left">
+                                <button class="input-icon-btn" onclick="toggleDrawer()" title="Ablation Engine">
+                                    <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                                </button>
+                            </div>
+                            <div class="input-action-right">
+                                <span class="model-selector">Phi-2 · 2.7B</span>
+                                <button class="send-btn" id="send-btn" onclick="handleSendChat()" disabled>
+                                    <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                                </button>
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Rollback Button -->
-                    <button class="rollback-btn" id="rollback-btn" onclick="handleRollback()" disabled>
-                        ↩ Rollback to Original Weights
+                <!-- Quick Action Pills -->
+                <div class="quick-actions" id="quick-actions">
+                    <button class="quick-pill" onclick="sendQuickPrompt('Where does Harry Potter live?')">
+                        <span class="pill-icon">⚡</span> Probe Knowledge
+                    </button>
+                    <button class="quick-pill" onclick="sendQuickPrompt('Explain quantum computing')">
+                        <span class="pill-icon">🧠</span> Test Recall
+                    </button>
+                    <button class="quick-pill" onclick="toggleDrawer()">
+                        <span class="pill-icon">🔬</span> Ablate Concept
+                    </button>
+                    <button class="quick-pill" onclick="sendQuickPrompt('Tell me about Albert Einstein')">
+                        <span class="pill-icon">📝</span> Ask a Question
                     </button>
                 </div>
             </div>
 
-            <!-- ── Right: Chat Panel ──────────────── -->
-            <div class="panel chat-panel">
-                <div class="panel-header">
-                    <div class="panel-icon">💬</div>
-                    <div>
-                        <div class="panel-title" id="chat-panel-title">Chat with GPT-2</div>
-                        <div class="panel-subtitle">Probe the model before &amp; after ablation</div>
-                    </div>
-                </div>
+            <!-- Chat View (hidden initially) -->
+            <div class="chat-view" id="chat-view">
+                <div class="chat-messages" id="chat-messages"></div>
 
-                <div class="chat-body" id="chat-body">
-                    <!-- Welcome Screen -->
-                    <div class="chat-welcome" id="chat-welcome">
-                        <div class="chat-welcome-icon">🤖</div>
-                        <h3 id="chat-welcome-title">Talk to GPT-2</h3>
-                        <p>Ask questions to test what the model knows. After ablation, ask the same question to see proof of concept erasure.</p>
-                        <div class="quick-prompts">
-                            <button class="quick-prompt" onclick="sendQuickPrompt('Where does Harry Potter live?')">Where does Harry Potter live?</button>
-                            <button class="quick-prompt" onclick="sendQuickPrompt('The capital of France is')">The capital of France is</button>
-                            <button class="quick-prompt" onclick="sendQuickPrompt('Tell me about Albert Einstein')">Tell me about Einstein</button>
+                <div class="chat-input-bottom">
+                    <div class="input-container">
+                        <div class="input-box" id="input-box-chat">
+                            <div class="input-main">
+                                <textarea
+                                    class="input-textarea"
+                                    id="chat-input-bottom"
+                                    placeholder="Ask Phi-2 anything..."
+                                    rows="1"
+                                    onkeydown="handleChatKeyDown(event)"
+                                    oninput="autoResize(this); toggleSendBtn()"
+                                ></textarea>
+                            </div>
+                            <div class="input-actions">
+                                <div class="input-action-left">
+                                    <button class="input-icon-btn" onclick="toggleDrawer()" title="Ablation Engine">
+                                        <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                                    </button>
+                                </div>
+                                <div class="input-action-right">
+                                    <span class="model-selector">Phi-2 · 2.7B</span>
+                                    <button class="send-btn" id="send-btn-bottom" onclick="handleSendChat()" disabled>
+                                        <svg viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Chat Input -->
-                <div class="chat-input-area">
-                    <div class="chat-input-wrapper">
-                        <textarea
-                            class="chat-input"
-                            id="chat-input"
-                            placeholder="Ask GPT-2 something..."
-                            rows="1"
-                            onkeydown="handleChatKeyDown(event)"
-                            oninput="autoResize(this)"
-                        ></textarea>
-                        <button class="send-btn" id="send-btn" onclick="handleSendChat()">
-                            ↑
-                        </button>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- ── Ablation Drawer ────────────────────── -->
+        <div class="drawer-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
+        <div class="ablation-drawer" id="ablation-drawer">
+            <div class="drawer-header">
+                <div class="drawer-header-left">
+                    <span style="font-size: 18px;">⚡</span>
+                    <div>
+                        <div class="drawer-title">Ablation Engine</div>
+                        <div class="drawer-subtitle">Erase concepts from Phi-2</div>
+                    </div>
+                </div>
+                <button class="drawer-close" onclick="closeDrawer()">×</button>
+            </div>
+
+            <div class="drawer-body">
+                <!-- Forget Text -->
+                <div class="input-group">
+                    <label class="input-label" for="forget-text">Concept to Forget</label>
+                    <textarea
+                        class="forget-textarea"
+                        id="forget-text"
+                        placeholder="Enter the text or concept to erase...&#10;&#10;Example: Harry Potter lives at 4 Privet Drive"
+                        rows="4"
+                    ></textarea>
+                </div>
+
+                <!-- Config -->
+                <div class="config-row">
+                    <div class="config-item">
+                        <label class="input-label" for="top-k">Target Layers</label>
+                        <select class="config-select" id="top-k">
+                            <option value="1">1 Layer</option>
+                            <option value="2">2 Layers</option>
+                            <option value="3" selected>3 Layers — Rec.</option>
+                            <option value="5">5 Layers</option>
+                        </select>
+                    </div>
+                    <div class="config-item">
+                        <label class="input-label" for="ablation-strength">Strength</label>
+                        <select class="config-select" id="ablation-strength">
+                            <option value="1.0">Low (1.0)</option>
+                            <option value="1.5" selected>Med (1.5)</option>
+                            <option value="2.0">High (2.0)</option>
+                            <option value="3.0">Max (3.0)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Ablate Button -->
+                <button class="ablate-btn" id="ablate-btn" onclick="handleAblate()">
+                    <div class="spinner"></div>
+                    <span class="btn-text">⚡ Run Ablation</span>
+                </button>
+
+                <!-- Status Results -->
+                <div class="status-section" id="status-section">
+                    <div class="empty-status" id="empty-status">
+                        <div class="empty-status-icon">🧠</div>
+                        <div class="empty-status-text">
+                            Enter a concept above and click<br>
+                            <strong>Run Ablation</strong> to erase it from Phi-2
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rollback -->
+                <button class="rollback-btn" id="rollback-btn" onclick="handleRollback()" disabled>
+                    ↩ Rollback to Original Weights
+                </button>
+            </div>
+        </div>
+
     </div>
 
     <script src="/static/app.js"></script>
