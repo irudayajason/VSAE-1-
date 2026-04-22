@@ -248,7 +248,7 @@ async function handleAblate() {
             body: JSON.stringify({
                 forget_text: forgetText,
                 top_k_layers: topK,
-                target_matrices: ['W_Q', 'W_K', 'W_V', 'dense', 'fc1'],
+                target_matrices: ['W_Q', 'W_K', 'W_V'],
                 ablation_strength: alpha
             })
         });

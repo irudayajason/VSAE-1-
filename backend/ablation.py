@@ -2,7 +2,11 @@
 Ablation Engine — applies orthogonal projection to erase a concept
 from the model's weight matrices.
 
-Formula:  W_new = W - (W · v · vᵀ) / (vᵀ · v)
+KEY INSIGHT: Each transformer layer encodes a concept in a different
+direction. We must use LAYER-SPECIFIC forget vectors extracted from
+the hidden state at each layer, not a single global vector.
+
+Formula:  W_new = W - alpha * (W · v · vᵀ) / (vᵀ · v)
 
 Phi-2 uses nn.Linear: W shape [out_dim, in_dim]
 """
@@ -10,7 +14,7 @@ Phi-2 uses nn.Linear: W shape [out_dim, in_dim]
 import torch
 import hashlib
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime, timezone
 import logging
 
@@ -32,7 +36,7 @@ def _weight_hash(tensor: torch.Tensor) -> str:
 def apply_projection(
     W: torch.Tensor,
     v: torch.Tensor,
-    alpha: float = 1.5,
+    alpha: float = 1.0,
 ) -> torch.Tensor:
     """
     Applies orthogonal projection to remove the component of W
@@ -40,6 +44,12 @@ def apply_projection(
 
     For nn.Linear layout (Phi-2):   W shape [out_dim, in_dim]
         W_new = W - alpha * (W v) vᵀ / (vᵀ v)
+
+    With a normalized unit vector v (vᵀv = 1):
+        W_new = W - alpha * outer(W @ v, v)
+
+    alpha=1.0 = exact orthogonal projection (remove direction completely)
+    alpha>1.0 = over-project (more aggressive erasure, may hurt neighbors)
     """
     v = v.to(W.device).to(W.dtype).flatten()
 
@@ -58,12 +68,19 @@ def apply_projection(
 
 
 def ablate(
-    forget_vector: torch.Tensor,
+    layer_forget_vectors: Dict[int, torch.Tensor],
     target_layers: List[Dict],
-    alpha: float = 1.5,
+    alpha: float = 1.0,
 ) -> dict:
     """
-    Main ablation function — applies orthogonal projection to target layers.
+    Main ablation function — applies orthogonal projection to target layers
+    using LAYER-SPECIFIC forget vectors.
+
+    Args:
+        layer_forget_vectors: Dict mapping layer_index -> forget vector for that layer.
+                              Each vector is the concept's direction in that layer's space.
+        target_layers: List of dicts with layer_index, target_matrices.
+        alpha: Projection strength. 1.0 = exact removal, >1.0 = aggressive.
     """
     model, tokenizer, device = load_model()
 
@@ -73,7 +90,14 @@ def ablate(
 
     for layer_info in target_layers:
         layer_idx = layer_info["layer_index"]
-        target_matrices = layer_info.get("target_matrices", ["W_Q", "W_K", "W_V", "dense", "fc1"])
+        target_matrices = layer_info.get("target_matrices", ["W_Q", "W_K", "W_V"])
+
+        # Get the layer-specific forget vector
+        if layer_idx not in layer_forget_vectors:
+            logger.warning(f"No forget vector for layer {layer_idx}, skipping")
+            continue
+
+        forget_v = layer_forget_vectors[layer_idx]
         weights = get_target_weights(model, layer_idx, target_matrices)
 
         for weight_name, weight_param in weights.items():
@@ -83,7 +107,8 @@ def ablate(
             original_hash = _weight_hash(weight_param.data)
 
             with torch.no_grad():
-                new_weight = apply_projection(weight_param.data, forget_vector, alpha)
+                # Use the LAYER-SPECIFIC forget vector
+                new_weight = apply_projection(weight_param.data, forget_v, alpha)
                 weight_param.data.copy_(new_weight)
 
             modified_hash = _weight_hash(weight_param.data)

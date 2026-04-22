@@ -73,13 +73,22 @@ def trace_activations(forget_text: str) -> Dict[int, float]:
 def find_target_layers(
     forget_text: str,
     top_k: int = 3,
+    target_matrices: List[str] = None,
 ) -> List[Dict]:
     """
     Finds the top-K layers most activated by the forget text.
 
+    Args:
+        forget_text: The text/concept to forget
+        top_k: Number of top layers to target
+        target_matrices: Which weight matrices to modify. Defaults to attention only.
+
     Returns:
         List of dicts with layer_index, activation_score, target_matrices
     """
+    if target_matrices is None:
+        target_matrices = ["W_Q", "W_K", "W_V"]
+
     scores = trace_activations(forget_text)
 
     sorted_layers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -90,7 +99,7 @@ def find_target_layers(
         results.append({
             "layer_index": layer_idx,
             "activation_score": round(score, 4),
-            "target_matrices": ["W_Q", "W_K", "W_V", "dense", "fc1"]
+            "target_matrices": target_matrices
         })
 
     logger.info(f"Top-{top_k} target layers: {[r['layer_index'] for r in results]}")

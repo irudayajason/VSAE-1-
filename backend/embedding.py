@@ -6,7 +6,7 @@ Supports: Phi-2 (microsoft/phi-2) only.
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from typing import Optional, List
+from typing import Optional, List, Dict
 import logging
 
 # Set up logging
@@ -108,17 +108,11 @@ def normalize_vector(v: torch.Tensor) -> torch.Tensor:
 
 def get_forget_vector(forget_text: str) -> torch.Tensor:
     """
-    Converts forget_text into a forget vector v.
-
-    Steps:
-    1. Tokenize the input text
-    2. Run a forward pass
-    3. Extract the last hidden state
-    4. Average across all token positions → shape [hidden_dim]
-    5. Normalize to unit length
+    Converts forget_text into a single global forget vector v (from last hidden state).
+    Used for semantic guardrail similarity checking.
 
     Returns:
-        v: Tensor of shape [hidden_dim]
+        v: Tensor of shape [hidden_dim], normalized to unit length
     """
     model, tokenizer, device = load_model()
 
@@ -154,6 +148,99 @@ def get_forget_vector(forget_text: str) -> torch.Tensor:
     v = normalize_vector(v)
     logger.info(f"Forget vector norm (after normalize): {torch.norm(v).item():.4f}")
 
+    return v
+
+
+def get_layerwise_forget_vectors(forget_text: str) -> Dict[int, torch.Tensor]:
+    """
+    Extracts a per-layer forget vector for every transformer layer.
+
+    Each layer in the transformer encodes the concept differently.
+    hidden_states[i] is the INPUT to layer i (output of layer i-1).
+    We use each layer's input hidden state as the forget direction for
+    that layer's weight matrices (W_Q, W_K, W_V all take this as input).
+
+    Returns:
+        Dict mapping layer_index -> normalized forget vector [hidden_dim]
+    """
+    model, tokenizer, device = load_model()
+
+    inputs = tokenizer(
+        forget_text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+        padding=True
+    ).to(device)
+
+    logger.info(f"Extracting per-layer forget vectors for {inputs['input_ids'].shape[1]} tokens")
+
+    with torch.no_grad():
+        outputs = model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            output_hidden_states=True
+        )
+
+    # outputs.hidden_states is a tuple of (n_layers + 1) tensors:
+    #   [0] = embedding output (input to layer 0)
+    #   [1] = output of layer 0 (input to layer 1)
+    #   ...
+    #   [i] = input to layer i
+    #   [n] = final hidden state (output of last layer)
+    attention_mask = inputs["attention_mask"].unsqueeze(-1).float()
+
+    layer_vectors = {}
+    num_layers = len(outputs.hidden_states) - 1  # exclude final output
+
+    for layer_idx in range(num_layers):
+        # hidden_states[layer_idx] is the input to layer layer_idx
+        hs = outputs.hidden_states[layer_idx]  # [batch, seq_len, hidden_dim]
+
+        # Average across token positions
+        sum_hidden = (hs.float() * attention_mask).sum(dim=1)
+        count = attention_mask.sum(dim=1)
+        v = (sum_hidden / count).squeeze(0)  # [hidden_dim]
+
+        v = normalize_vector(v)
+        layer_vectors[layer_idx] = v
+
+    logger.info(f"Extracted {len(layer_vectors)} per-layer forget vectors")
+    return layer_vectors
+
+
+def get_prompt_embedding(prompt: str) -> torch.Tensor:
+    """
+    Extracts a prompt's embedding vector (same method as get_forget_vector).
+    Used for semantic similarity checking in the guardrail.
+
+    Returns:
+        v: Tensor of shape [hidden_dim], normalized to unit length
+    """
+    model, tokenizer, device = load_model()
+
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=512,
+        padding=True
+    ).to(device)
+
+    with torch.no_grad():
+        outputs = model(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            output_hidden_states=True
+        )
+
+    last_hidden_state = outputs.hidden_states[-1]
+    attention_mask = inputs["attention_mask"].unsqueeze(-1).float()
+    sum_hidden = (last_hidden_state.float() * attention_mask).sum(dim=1)
+    count = attention_mask.sum(dim=1)
+    v = (sum_hidden / count).squeeze(0)
+
+    v = normalize_vector(v)
     return v
 
 
