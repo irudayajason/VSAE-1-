@@ -52,9 +52,8 @@ def load_model():
 
     _model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=torch.float16,
+        dtype=torch.float16,
         trust_remote_code=True,
-        output_hidden_states=True
     ).to(_device)
 
     _model.eval()
@@ -269,6 +268,7 @@ def generate_text(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             max_new_tokens=max_tokens,
+            min_new_tokens=10,
             do_sample=True,
             temperature=temperature,
             top_k=50,

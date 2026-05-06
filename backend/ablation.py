@@ -50,21 +50,27 @@ def apply_projection(
 
     alpha=1.0 = exact orthogonal projection (remove direction completely)
     alpha>1.0 = over-project (more aggressive erasure, may hurt neighbors)
-    """
-    v = v.to(W.device).to(W.dtype).flatten()
 
-    v_norm_sq = torch.dot(v, v)
+    NOTE: All math is done in float32 for numerical precision, then
+    the result is cast back to the original dtype.
+    """
+    orig_dtype = W.dtype
+    # Upcast to float32 for numerical precision — float16 loses too much
+    W_f32 = W.float()
+    v_f32 = v.to(W.device).float().flatten()
+
+    v_norm_sq = torch.dot(v_f32, v_f32)
     if v_norm_sq < 1e-10:
         logger.warning("Forget vector has near-zero norm, skipping projection")
         return W
 
     # nn.Linear: W is [out_dim, in_dim]
     # Project out v from the input dimension (dim 1)
-    Wv = torch.mv(W, v)             # [out_dim]
-    outer = torch.outer(Wv, v)      # [out_dim, in_dim]
-    W_new = W - alpha * outer / v_norm_sq
+    Wv = torch.mv(W_f32, v_f32)          # [out_dim]
+    outer = torch.outer(Wv, v_f32)       # [out_dim, in_dim]
+    W_new = W_f32 - alpha * outer / v_norm_sq
 
-    return W_new
+    return W_new.to(orig_dtype)
 
 
 def ablate(

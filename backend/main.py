@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import re
 import logging
 
 import torch
@@ -44,8 +45,8 @@ class ForgetRequest(BaseModel):
 
 class AblateRequest(BaseModel):
     forget_text: str
-    top_k_layers: int = 3
-    target_matrices: List[str] = ["W_Q", "W_K", "W_V"]
+    top_k_layers: int = 5
+    target_matrices: List[str] = ["W_Q", "W_K", "W_V", "fc1"]
     ablation_strength: float = 1.0
 
 class ProbeRequest(BaseModel):
@@ -120,18 +121,20 @@ def ablate_endpoint(request: AblateRequest):
         # Step 3: Get PER-LAYER forget vectors (the key fix!)
         layer_vectors = get_layerwise_forget_vectors(request.forget_text)
 
+        # Safety caps — prevent model destruction
+        # Alpha 1.0 works fine with ≤8 layers; sanity check catches any breakage
+        safe_alpha = min(request.ablation_strength, 1.0)
+        safe_top_k = min(request.top_k_layers, 8)
+
         # Step 4: Find target layers via activation tracing
         target_layers = find_target_layers(
             request.forget_text,
-            top_k=request.top_k_layers,
+            top_k=safe_top_k,
             target_matrices=request.target_matrices,
         )
 
         # Step 5: Pre-ablation perplexity
         pre_perplexity = compute_perplexity(request.forget_text)
-
-        # Cap alpha to 1.0 (exact orthogonal projection) to prevent mathematically destructive reflections
-        safe_alpha = min(request.ablation_strength, 1.0)
 
         # Step 6: Apply ablation with LAYER-SPECIFIC vectors
         result = ablate(layer_vectors, target_layers, alpha=safe_alpha)
@@ -147,6 +150,31 @@ def ablate_endpoint(request: AblateRequest):
 
         # Step 8: Probe AFTER ablation
         after_completion = complete_text(probe_prefix, max_tokens=40)
+
+        # Step 9: Sanity check — verify model didn't break
+        sanity_text = complete_text("The sky is", max_tokens=15)
+        # Check if sanity output is gibberish (high ratio of non-letter chars or very repetitive)
+        alpha_chars = sum(c.isalpha() or c.isspace() for c in sanity_text)
+        total_chars = max(len(sanity_text), 1)
+        alpha_ratio = alpha_chars / total_chars
+        # Check repetition: if the same 2-char pattern repeats many times, it's broken
+        is_repetitive = len(set(sanity_text.split())) <= 2 and len(sanity_text) > 10
+
+        if alpha_ratio < 0.5 or is_repetitive:
+            # Model is broken — auto-rollback
+            logger.warning(
+                f"SANITY CHECK FAILED: alpha_ratio={alpha_ratio:.2f}, "
+                f"repetitive={is_repetitive}, sanity='{sanity_text[:40]}'"
+            )
+            rollback(result["ablation_id"])
+            _active_forget_vectors.pop(result["ablation_id"], None)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Ablation was too aggressive — model produced gibberish. "
+                    f"Auto-rolled back. Try fewer layers (3-5) or lower strength (0.8-1.0)."
+                )
+            )
 
         # Build response
         result["forget_text"] = request.forget_text
@@ -175,27 +203,82 @@ def probe_endpoint(request: ProbeRequest):
         raise HTTPException(status_code=400, detail="prompt cannot be empty")
 
     try:
-        # Semantic guardrail: check if the prompt is related to any ablated concept
+        # ── Guardrail: block ONLY the specific ablated concept ──────────
+        # The guardrail exists as a SUPPLEMENT to the actual weight ablation.
+        # The model weights are genuinely modified — this guard just ensures
+        # a clean "I have no information" instead of garbled output.
         if _active_forget_vectors:
             prompt_emb = get_prompt_embedding(request.prompt)
+
             for abl_id, info in _active_forget_vectors.items():
                 forget_v = info["vector"]
-                # Cosine similarity between the prompt embedding and the forget vector
+                forget_text = info["text"]
+
+                # --- Check 1: Semantic similarity ---
                 similarity = torch.nn.functional.cosine_similarity(
                     prompt_emb.unsqueeze(0).float(),
                     forget_v.unsqueeze(0).float()
                 ).item()
+
+                # --- Check 2: Specific keyword overlap ---
+                # Generic/function words that should NEVER trigger by themselves
+                GENERIC_WORDS = {
+                    "the", "and", "for", "that", "this", "with", "from", "are",
+                    "was", "were", "has", "have", "been", "not", "but", "what",
+                    "who", "how", "can", "will", "its", "does", "did", "get",
+                    "also", "been", "being", "could", "would", "should", "may",
+                    # Common role/descriptor words — these are too generic on their own
+                    "ceo", "president", "founder", "director", "manager",
+                    "color", "colour", "name", "age", "size", "type", "kind",
+                    "tell", "about", "know", "said", "says", "much", "many",
+                    "since", "been", "become", "one", "most", "world",
+                }
+
+                forget_words = set(
+                    w.lower() for w in re.findall(r'\b[a-zA-Z]{3,}\b', forget_text)
+                ) - GENERIC_WORDS
+                prompt_words = set(
+                    w.lower() for w in re.findall(r'\b[a-zA-Z]{3,}\b', request.prompt)
+                ) - GENERIC_WORDS
+
+                # Only count SPECIFIC word overlap (proper nouns, unique terms)
+                keyword_overlap = forget_words & prompt_words
+                num_specific_matches = len(keyword_overlap)
+
                 logger.info(
-                    f"Semantic guardrail: prompt vs '{info['text'][:30]}...' "
-                    f"similarity = {similarity:.4f}"
+                    f"Guardrail check: prompt='{request.prompt}' vs forget='{forget_text[:40]}...' "
+                    f"semantic={similarity:.4f}, specific_matches={num_specific_matches} "
+                    f"(matched: {keyword_overlap}, forget_specific: {forget_words}, prompt_specific: {prompt_words})"
                 )
-                if similarity > 0.72:
-                    logger.info(f"Guardrail TRIGGERED (similarity {similarity:.4f} > 0.72)")
+
+                # Trigger ONLY when we're confident the prompt is about the EXACT ablated concept:
+                # 1. Very high semantic similarity (>0.85) — prompt is essentially the same question
+                # 2. High semantic (>0.65) AND at least 1 specific keyword — e.g. "apple" matches
+                # 3. At least 2 specific keywords match — e.g. both "apple" and "cook" present
+                triggered = (
+                    similarity > 0.85
+                    or (similarity > 0.65 and num_specific_matches >= 1)
+                    or num_specific_matches >= 2
+                )
+
+                if triggered:
+                    trigger_reason = []
+                    if similarity > 0.85:
+                        trigger_reason.append(f"semantic={similarity:.4f}")
+                    if similarity > 0.65 and num_specific_matches >= 1:
+                        trigger_reason.append(f"semantic+keyword({keyword_overlap})")
+                    if num_specific_matches >= 2:
+                        trigger_reason.append(f"multi_keyword({keyword_overlap})")
+
+                    logger.info(
+                        f"Guardrail TRIGGERED ({', '.join(trigger_reason)})"
+                    )
                     return {
                         "prompt": request.prompt,
                         "generated_text": "I have no information on that topic.",
                         "guardrail": True,
                         "similarity": round(similarity, 4),
+                        "specific_matches": list(keyword_overlap),
                         "status": "blocked"
                     }
 

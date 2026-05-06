@@ -4,7 +4,11 @@
  * Phi-2 only.
  */
 
-const API_BASE = '';
+// Auto-detect API base: if served from the backend (port 8000), use relative URLs.
+// If opened from a different server or file://, point to the backend explicitly.
+const API_BASE = (window.location.port === '8000')
+    ? ''
+    : 'http://localhost:8000';
 
 // ── State ─────────────────────────────────────────────
 let currentAblationId = null;
@@ -174,6 +178,9 @@ async function handleSendChat() {
     disableSendBtns(true);
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout for CPU inference
+
         const res = await fetch(`${API_BASE}/probe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -181,8 +188,11 @@ async function handleSendChat() {
                 prompt: prompt,
                 max_tokens: 100,
                 temperature: 0.5
-            })
+            }),
+            signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Generation failed');
@@ -192,7 +202,13 @@ async function handleSendChat() {
 
     } catch (err) {
         typingEl.remove();
-        addChatMessage('assistant', `Error: ${err.message}`);
+        let errorMsg = err.message;
+        if (err.name === 'AbortError') {
+            errorMsg = 'Request timed out. The model may be loading or running slowly on CPU. Please try again.';
+        } else if (err.message === 'Failed to fetch' || err instanceof TypeError) {
+            errorMsg = `Cannot connect to the backend at ${API_BASE || 'this server'}. Make sure the backend is running on port 8000.`;
+        }
+        addChatMessage('assistant', `Error: ${errorMsg}`);
     } finally {
         isProcessing = false;
         disableSendBtns(false);
@@ -248,7 +264,7 @@ async function handleAblate() {
             body: JSON.stringify({
                 forget_text: forgetText,
                 top_k_layers: topK,
-                target_matrices: ['W_Q', 'W_K', 'W_V'],
+                target_matrices: ['W_Q', 'W_K', 'W_V', 'fc1'],
                 ablation_strength: alpha
             })
         });
