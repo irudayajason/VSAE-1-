@@ -988,6 +988,63 @@ body {
     line-height: 1.5;
 }
 
+/* ── Ablation Proof (in-chat) ────────────────────────── */
+
+.ablation-proof-details {
+    margin-top: 4px;
+}
+
+.ablation-proof-toggle {
+    font-size: 12px;
+    color: var(--accent-amber);
+    cursor: pointer;
+    font-weight: 500;
+    padding: 4px 0;
+    list-style: none;
+    user-select: none;
+    transition: color 0.2s;
+}
+
+.ablation-proof-toggle::-webkit-details-marker { display: none; }
+.ablation-proof-toggle::before {
+    content: '▸ ';
+    font-size: 10px;
+}
+details[open] > .ablation-proof-toggle::before { content: '▾ '; }
+
+.ablation-proof-toggle:hover { color: var(--accent-warm); }
+
+.ablation-proof-raw {
+    margin-top: 8px;
+    padding: 10px 14px;
+    background: rgba(212, 100, 74, 0.06);
+    border: 1px solid rgba(212, 100, 74, 0.15);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+.proof-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.proof-metrics span {
+    padding: 2px 8px;
+    background: var(--bg-glass);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+}
+
 /* ── Scrollbar ───────────────────────────────────────── */
 
 ::-webkit-scrollbar { width: 5px; }

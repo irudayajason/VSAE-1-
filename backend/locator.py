@@ -78,6 +78,11 @@ def find_target_layers(
     """
     Finds the top-K layers most activated by the forget text.
 
+    IMPORTANT: Early layers (0-3) are excluded because they encode basic
+    token-level representations, not high-level semantic concepts.
+    Ablating them destroys the word entirely (e.g. "apple" as fruit AND
+    company), causing collateral damage to unrelated queries.
+
     Args:
         forget_text: The text/concept to forget
         top_k: Number of top layers to target
@@ -89,9 +94,15 @@ def find_target_layers(
     if target_matrices is None:
         target_matrices = ["W_Q", "W_K", "W_V"]
 
+    # Early layers encode basic token features, not concepts — never ablate them
+    MIN_LAYER = 4
+
     scores = trace_activations(forget_text)
 
-    sorted_layers = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    # Filter out early layers before ranking
+    filtered_scores = {k: v for k, v in scores.items() if k >= MIN_LAYER}
+
+    sorted_layers = sorted(filtered_scores.items(), key=lambda x: x[1], reverse=True)
     top_layers = sorted_layers[:top_k]
 
     results = []
@@ -102,5 +113,5 @@ def find_target_layers(
             "target_matrices": target_matrices
         })
 
-    logger.info(f"Top-{top_k} target layers: {[r['layer_index'] for r in results]}")
+    logger.info(f"Top-{top_k} target layers (min_layer={MIN_LAYER}): {[r['layer_index'] for r in results]}")
     return results

@@ -376,6 +376,37 @@ async function handleRollback() {
 
 // ── Helpers ───────────────────────────────────────────
 
+function addAblationProofMessage(rawOutput, metrics) {
+    const container = document.getElementById('chat-messages');
+    const row = document.createElement('div');
+    row.className = 'message-row assistant-row';
+
+    const metricsHtml = metrics ? `
+        <div class="proof-metrics">
+            <span>Uniqueness: ${(metrics.unique_ratio * 100).toFixed(0)}%</span>
+            <span>Coherence: ${(metrics.alpha_ratio * 100).toFixed(0)}%</span>
+            ${metrics.template_blanks > 0 ? `<span>Blanks: ${metrics.template_blanks}</span>` : ''}
+            ${metrics.repetition_spam ? '<span>Repetitive ⚠️</span>' : ''}
+        </div>
+    ` : '';
+
+    row.innerHTML = `
+        <div class="message-inner">
+            <div class="message-avatar">🔬</div>
+            <div class="message-content">
+                <details class="ablation-proof-details">
+                    <summary class="ablation-proof-toggle">View raw model output (ablation proof)</summary>
+                    <div class="ablation-proof-raw">${escapeHtml(rawOutput)}</div>
+                    ${metricsHtml}
+                </details>
+            </div>
+        </div>
+    `;
+
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+}
+
 function addChatMessage(role, text, isTyping = false) {
     const container = document.getElementById('chat-messages');
     const row = document.createElement('div');

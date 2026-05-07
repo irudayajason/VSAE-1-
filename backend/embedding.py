@@ -245,16 +245,21 @@ def get_prompt_embedding(prompt: str) -> torch.Tensor:
 
 def generate_text(
     prompt: str,
-    max_tokens: int = 100,
-    temperature: float = 0.5,
+    max_tokens: int = 60,
+    temperature: float = 0.3,
 ) -> str:
     """
     Generates text from the model given a prompt.
-    Formats the prompt as Q&A for better coherence.
+    Uses Phi-2's instruct format for focused, concise answers.
     """
     model, tokenizer, device = load_model()
 
-    formatted_prompt = f"Question: {prompt}\nAnswer:"
+    # Phi-2 responds best to this instruction format
+    formatted_prompt = (
+        f"Instruct: Answer the following question concisely in 1-3 sentences.\n"
+        f"Question: {prompt}\n"
+        f"Output:"
+    )
 
     inputs = tokenizer(
         formatted_prompt,
@@ -268,12 +273,12 @@ def generate_text(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             max_new_tokens=max_tokens,
-            min_new_tokens=10,
+            min_new_tokens=5,
             do_sample=True,
             temperature=temperature,
-            top_k=50,
-            top_p=0.9,
-            repetition_penalty=1.3,
+            top_k=40,
+            top_p=0.85,
+            repetition_penalty=1.4,
             pad_token_id=tokenizer.eos_token_id
         )
 
@@ -282,9 +287,30 @@ def generate_text(
         skip_special_tokens=True
     ).strip()
 
-    # Stop at the first "Question:" if model generates another Q&A pair
-    if "Question:" in generated:
-        generated = generated.split("Question:")[0].strip()
+    # ── Post-processing: clean up common Phi-2 artifacts ──────────
+    import re as _re
+
+    # Stop at any new instruction/question block
+    for stop_marker in ["Question:", "Instruct:", "Output:", "###", "```"]:
+        if stop_marker in generated:
+            generated = generated.split(stop_marker)[0].strip()
+
+    # Remove code blocks that Phi-2 sometimes hallucinates
+    generated = _re.sub(r'#include\s*<.*', '', generated).strip()
+    generated = _re.sub(r'\b(int|void|char|float|double)\s+\w+\s*\(.*', '', generated).strip()
+
+    # Remove "A:" or "Answer:" prefix if present
+    generated = _re.sub(r'^(A:|Answer:)\s*', '', generated).strip()
+
+    # Trim trailing incomplete sentences (no period/question mark at end)
+    sentences = _re.split(r'(?<=[.!?])\s+', generated)
+    if len(sentences) > 1 and not sentences[-1].rstrip().endswith(('.', '!', '?')):
+        sentences = sentences[:-1]
+    generated = ' '.join(sentences).strip()
+
+    # Final safety: if result is empty or very short, give a fallback
+    if len(generated) < 5:
+        generated = "I'm unable to generate a clear response for this query."
 
     logger.info(f"Generated {len(generated)} chars from prompt '{prompt[:40]}...'")
     return generated
