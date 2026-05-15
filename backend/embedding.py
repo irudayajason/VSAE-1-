@@ -273,12 +273,12 @@ def generate_text(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             max_new_tokens=max_tokens,
-            min_new_tokens=5,
+            min_new_tokens=2,
             do_sample=True,
-            temperature=temperature,
-            top_k=40,
-            top_p=0.85,
-            repetition_penalty=1.4,
+            temperature=0.1,
+            top_k=20,
+            top_p=0.95,
+            repetition_penalty=1.15,
             pad_token_id=tokenizer.eos_token_id
         )
 

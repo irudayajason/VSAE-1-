@@ -1,58 +1,55 @@
 /**
- * VSAE Frontend — Claude-style Chat Interface
+ * VSAE Frontend -- Dark Gold Theme
  * Handles API calls, chat, ablation drawer, and view transitions.
- * Phi-2 only.
  */
 
-// Auto-detect API base: if served from the backend (port 8000), use relative URLs.
-// If opened from a different server or file://, point to the backend explicitly.
-const API_BASE = (window.location.port === '8000')
-    ? ''
-    : 'http://localhost:8000';
+const API_BASE = (window.location.port === '8000') ? '' : 'http://localhost:8000';
 
-// ── State ─────────────────────────────────────────────
+// State
 let currentAblationId = null;
 let chatHistory = [];
 let isProcessing = false;
 let drawerOpen = false;
 let inChatView = false;
 
-// ── Init ──────────────────────────────────────────────
+// Init
 document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
-    // Focus input on load
     const input = document.getElementById('chat-input');
     if (input) input.focus();
 });
 
-// ── Health Check ──────────────────────────────────────
+// Health Check
 async function checkHealth() {
     try {
         const res = await fetch(`${API_BASE}/health`);
         const data = await res.json();
         const badge = document.getElementById('model-status-text');
-        badge.textContent = `Phi-2 · ${data.device} · ${data.dtype}`;
-        document.querySelector('.dot').style.background = 'var(--accent-emerald)';
+        if (badge) badge.textContent = `Phi-2 -- ${data.device} -- ${data.dtype}`;
+        const dot = document.querySelector('.dot');
+        if (dot) dot.style.background = 'var(--green)';
     } catch (err) {
         const badge = document.getElementById('model-status-text');
-        badge.textContent = 'Phi-2 · Connection error';
-        document.querySelector('.dot').style.background = 'var(--accent-red)';
+        if (badge) badge.textContent = 'Phi-2 -- Connection error';
+        const dot = document.querySelector('.dot');
+        if (dot) dot.style.background = 'var(--red)';
     }
 }
 
-// ── View Transitions ──────────────────────────────────
+// Sidebar
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.classList.toggle('collapsed');
+}
 
+// View Transitions
 function switchToChatView() {
     if (inChatView) return;
     inChatView = true;
-
     const welcome = document.getElementById('welcome-view');
     const chatView = document.getElementById('chat-view');
-
-    welcome.classList.add('hidden');
-    chatView.classList.add('visible');
-
-    // Focus the bottom input
+    if (welcome) welcome.classList.add('hidden');
+    if (chatView) chatView.classList.add('visible');
     setTimeout(() => {
         const bottomInput = document.getElementById('chat-input-bottom');
         if (bottomInput) bottomInput.focus();
@@ -61,31 +58,18 @@ function switchToChatView() {
 
 function resetToWelcome() {
     inChatView = false;
-
     const welcome = document.getElementById('welcome-view');
     const chatView = document.getElementById('chat-view');
-
-    welcome.classList.remove('hidden');
-    chatView.classList.remove('visible');
-
-    // Clear messages
+    if (welcome) welcome.classList.remove('hidden');
+    if (chatView) chatView.classList.remove('visible');
     document.getElementById('chat-messages').innerHTML = '';
     chatHistory = [];
-
-    // Focus the welcome input
     const input = document.getElementById('chat-input');
-    if (input) {
-        input.value = '';
-        input.focus();
-    }
-
-    // Update sidebar
-    setActiveSidebarBtn('btn-chat');
+    if (input) { input.value = ''; input.focus(); }
     closeDrawer();
 }
 
 function focusChat() {
-    setActiveSidebarBtn('btn-chat');
     closeDrawer();
     if (inChatView) {
         const input = document.getElementById('chat-input-bottom');
@@ -96,118 +80,81 @@ function focusChat() {
     }
 }
 
-function setActiveSidebarBtn(id) {
-    document.querySelectorAll('.sidebar-btn').forEach(btn => btn.classList.remove('active'));
-    const btn = document.getElementById(id);
-    if (btn) btn.classList.add('active');
-}
-
-// ── Ablation Drawer ───────────────────────────────────
-
+// Ablation Drawer
 function toggleDrawer() {
-    if (drawerOpen) {
-        closeDrawer();
-    } else {
-        openDrawer();
-    }
+    drawerOpen ? closeDrawer() : openDrawer();
 }
 
 function openDrawer() {
     drawerOpen = true;
-    document.getElementById('ablation-drawer').classList.add('open');
-    document.getElementById('drawer-backdrop').classList.add('visible');
-    setActiveSidebarBtn('btn-ablation');
+    const drawer = document.getElementById('ablation-drawer');
+    const backdrop = document.getElementById('drawer-backdrop');
+    if (drawer) drawer.classList.add('open');
+    if (backdrop) backdrop.classList.add('visible');
 }
 
 function closeDrawer() {
     drawerOpen = false;
-    document.getElementById('ablation-drawer').classList.remove('open');
-    document.getElementById('drawer-backdrop').classList.remove('visible');
-    if (!inChatView) {
-        setActiveSidebarBtn('btn-chat');
-    }
+    const drawer = document.getElementById('ablation-drawer');
+    const backdrop = document.getElementById('drawer-backdrop');
+    if (drawer) drawer.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('visible');
 }
 
-// ── Send Button State ─────────────────────────────────
-
+// Send Button State
 function toggleSendBtn() {
     const welcomeInput = document.getElementById('chat-input');
     const bottomInput = document.getElementById('chat-input-bottom');
     const sendBtn = document.getElementById('send-btn');
     const sendBtnBottom = document.getElementById('send-btn-bottom');
-
     if (welcomeInput && sendBtn) {
         const hasText = welcomeInput.value.trim().length > 0;
         sendBtn.disabled = !hasText;
-        sendBtn.classList.toggle('active', hasText);
     }
     if (bottomInput && sendBtnBottom) {
         const hasText = bottomInput.value.trim().length > 0;
         sendBtnBottom.disabled = !hasText;
-        sendBtnBottom.classList.toggle('active', hasText);
     }
 }
 
-// ── Chat ──────────────────────────────────────────────
-
+// Chat
 function getActiveInput() {
-    if (inChatView) {
-        return document.getElementById('chat-input-bottom');
-    }
-    return document.getElementById('chat-input');
+    return inChatView ? document.getElementById('chat-input-bottom') : document.getElementById('chat-input');
 }
 
 async function handleSendChat() {
     const input = getActiveInput();
     const prompt = input.value.trim();
     if (!prompt || isProcessing) return;
-
     isProcessing = true;
-
-    // Switch to chat view if we're on welcome
     switchToChatView();
-
     addChatMessage('user', prompt);
     input.value = '';
     autoResize(input);
     toggleSendBtn();
-
     const typingEl = addChatMessage('assistant', null, true);
-
-    // Disable both send buttons
     disableSendBtns(true);
 
     try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min timeout for CPU inference
-
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
         const res = await fetch(`${API_BASE}/probe`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                prompt: prompt,
-                max_tokens: 100,
-                temperature: 0.5
-            }),
+            body: JSON.stringify({ prompt, max_tokens: 100, temperature: 0.5 }),
             signal: controller.signal
         });
-
         clearTimeout(timeoutId);
-
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Generation failed');
-
         typingEl.remove();
         addChatMessage('assistant', data.generated_text || '(empty response)');
-
     } catch (err) {
         typingEl.remove();
         let errorMsg = err.message;
-        if (err.name === 'AbortError') {
-            errorMsg = 'Request timed out. The model may be loading or running slowly on CPU. Please try again.';
-        } else if (err.message === 'Failed to fetch' || err instanceof TypeError) {
-            errorMsg = `Cannot connect to the backend at ${API_BASE || 'this server'}. Make sure the backend is running on port 8000.`;
-        }
+        if (err.name === 'AbortError') errorMsg = 'Request timed out. Please try again.';
+        else if (err.message === 'Failed to fetch' || err instanceof TypeError)
+            errorMsg = `Cannot connect to backend at ${API_BASE || 'this server'}.`;
         addChatMessage('assistant', `Error: ${errorMsg}`);
     } finally {
         isProcessing = false;
@@ -237,219 +184,160 @@ function disableSendBtns(disabled) {
     if (btn2) btn2.disabled = disabled;
 }
 
-// ── Ablation ──────────────────────────────────────────
-
+// Ablation
 async function handleAblate() {
     const forgetText = document.getElementById('forget-text').value.trim();
     if (!forgetText) return;
-
     const btn = document.getElementById('ablate-btn');
     btn.classList.add('loading');
     btn.disabled = true;
-
     const statusSection = document.getElementById('status-section');
     const emptyStatus = document.getElementById('empty-status');
     if (emptyStatus) emptyStatus.style.display = 'none';
-
     statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
-    addStatusCard(statusSection, '⏳', 'Pipeline', 'Running Phi-2 ablation pipeline... This may take a moment.', 'warning');
+    addStatusCard(statusSection, 'Pipeline', 'Running Phi-2 ablation pipeline...', 'warning');
 
     try {
         const topK = parseInt(document.getElementById('top-k').value);
         const alpha = parseFloat(document.getElementById('ablation-strength').value);
-
         const res = await fetch(`${API_BASE}/ablate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 forget_text: forgetText,
                 top_k_layers: topK,
-                target_matrices: ['W_Q', 'W_K', 'W_V', 'fc1'],
+                target_matrices: ['W_Q', 'W_K', 'W_V'],
                 ablation_strength: alpha
             })
         });
-
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Ablation failed');
-
         statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
-
         currentAblationId = data.ablation_id;
         checkHealth();
 
-        // 1. Layers targeted
-        const layerChips = data.targeted_layers
-            .map(l => `<span class="layer-chip">Layer ${l}</span>`)
-            .join('');
-        addStatusCard(statusSection, '🎯', 'Layers Targeted',
-            `<div class="layer-chips">${layerChips}</div>`, 'success', true);
+        // Layers targeted
+        const layerChips = data.targeted_layers.map(l => `<span class="layer-chip">Layer ${l}</span>`).join('');
+        addStatusCard(statusSection, 'Layers Targeted', `<div class="layer-chips">${layerChips}</div>`, 'success', true);
 
-        // 2. Weights modified
+        // Weights modified
         const changedCount = data.layer_results.filter(r => r.changed).length;
-        addStatusCard(statusSection, '✅', 'Weights Modified',
-            `${changedCount} / ${data.layer_results.length} matrices modified`, 'success');
+        addStatusCard(statusSection, 'Weights Modified', `${changedCount} / ${data.layer_results.length} matrices modified`, 'success');
 
-        // 3. Before/After Proof
+        // Before/After Proof
         if (data.proof) {
             const proofHtml = `
-                <div style="margin-bottom: 6px; font-size: 11px; color: var(--text-muted);">
-                    Prompt: "<strong>${escapeHtml(data.proof.probe_prefix)}</strong>"
-                </div>
+                <div style="margin-bottom:6px;font-size:11px;color:var(--text-dim);">Prompt: "<strong>${escapeHtml(data.proof.probe_prefix)}</strong>"</div>
                 <div class="proof-comparison">
                     <div class="proof-box proof-before">
-                        <div class="proof-label">📗 Before Ablation</div>
+                        <div class="proof-label">Before Ablation</div>
                         <div class="proof-text">${escapeHtml(data.proof.before) || '(empty)'}</div>
                     </div>
                     <div class="proof-box proof-after">
-                        <div class="proof-label">📕 After Ablation</div>
+                        <div class="proof-label">After Ablation</div>
                         <div class="proof-text">${escapeHtml(data.proof.after) || '(empty)'}</div>
                     </div>
-                </div>
-            `;
-            addStatusCard(statusSection, '🔍', 'Side-by-Side Proof', proofHtml, '', true);
+                </div>`;
+            addStatusCard(statusSection, 'Side-by-Side Proof', proofHtml, '', true);
         }
 
-        // 4. Perplexity
+        // Perplexity
         const perpChange = data.perplexity_after - data.perplexity_before;
         const perpPercent = Math.min((data.perplexity_after / Math.max(data.perplexity_before, 1)) * 10, 100);
-        addStatusCard(statusSection, '📊', 'Perplexity Score',
-            `<div>Before: <strong>${data.perplexity_before}</strong> → After: <strong>${data.perplexity_after}</strong></div>
-             <div style="color: ${perpChange > 0 ? 'var(--accent-emerald)' : 'var(--accent-red)'}; margin-top: 4px;">
-                ${perpChange > 0 ? '↑' : '↓'} ${Math.abs(perpChange).toFixed(2)} ${perpChange > 0 ? '— Concept erased ✓' : '— Minimal change'}
+        addStatusCard(statusSection, 'Perplexity Score',
+            `<div>Before: <strong>${data.perplexity_before}</strong> -> After: <strong>${data.perplexity_after}</strong></div>
+             <div style="color:${perpChange > 0 ? 'var(--green)' : 'var(--red)'}; margin-top:4px;">
+                ${perpChange > 0 ? '+' : '-'} ${Math.abs(perpChange).toFixed(2)} ${perpChange > 0 ? '-- Concept erased' : '-- Minimal change'}
              </div>
              <div class="perplexity-meter">
-                <div class="meter-bar"><div class="meter-fill" style="width: ${perpPercent}%"></div></div>
+                <div class="meter-bar"><div class="meter-fill" style="width:${perpPercent}%"></div></div>
                 <div class="meter-labels"><span>Low (knows it)</span><span>High (forgot it)</span></div>
              </div>`,
             perpChange > 0 ? 'success' : 'warning', true);
 
-        // 5. Ablation ID
-        addStatusCard(statusSection, '🔑', 'Ablation ID',
-            `<span style="font-size: 10px">${data.ablation_id}</span>`, 'success');
-
+        // Ablation ID
+        addStatusCard(statusSection, 'Ablation ID', `<span style="font-size:10px">${data.ablation_id}</span>`, 'success');
         document.getElementById('rollback-btn').disabled = false;
 
+        // Add to sidebar history
+        addSidebarEntry(forgetText);
     } catch (err) {
         statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
-        addStatusCard(statusSection, '❌', 'Error', err.message, 'error');
+        addStatusCard(statusSection, 'Error', err.message, 'error');
     } finally {
         btn.classList.remove('loading');
         btn.disabled = false;
     }
 }
 
-// ── Rollback ──────────────────────────────────────────
-
+// Rollback
 async function handleRollback() {
     if (!currentAblationId) return;
-
     const btn = document.getElementById('rollback-btn');
     btn.disabled = true;
-    btn.textContent = '↩ Rolling back...';
-
+    btn.textContent = 'Rolling back...';
     try {
         const res = await fetch(`${API_BASE}/rollback`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ablation_id: currentAblationId })
         });
-
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || 'Rollback failed');
-
         const statusSection = document.getElementById('status-section');
         statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
-
-        addStatusCard(statusSection, '↩', 'Rolled Back',
-            `Restored ${data.restored_matrices.length} weight matrices to original state`, 'success');
-
+        addStatusCard(statusSection, 'Rolled Back', `Restored ${data.restored_matrices.length} weight matrices`, 'success');
         currentAblationId = null;
-        btn.textContent = '↩ Rollback to Original Weights';
-
+        btn.textContent = 'Rollback to Original Weights';
     } catch (err) {
         const statusSection = document.getElementById('status-section');
-        addStatusCard(statusSection, '❌', 'Rollback Error', err.message, 'error');
-        btn.textContent = '↩ Rollback to Original Weights';
+        addStatusCard(statusSection, 'Rollback Error', err.message, 'error');
+        btn.textContent = 'Rollback to Original Weights';
         btn.disabled = false;
     }
 }
 
-// ── Helpers ───────────────────────────────────────────
-
-function addAblationProofMessage(rawOutput, metrics) {
-    const container = document.getElementById('chat-messages');
-    const row = document.createElement('div');
-    row.className = 'message-row assistant-row';
-
-    const metricsHtml = metrics ? `
-        <div class="proof-metrics">
-            <span>Uniqueness: ${(metrics.unique_ratio * 100).toFixed(0)}%</span>
-            <span>Coherence: ${(metrics.alpha_ratio * 100).toFixed(0)}%</span>
-            ${metrics.template_blanks > 0 ? `<span>Blanks: ${metrics.template_blanks}</span>` : ''}
-            ${metrics.repetition_spam ? '<span>Repetitive ⚠️</span>' : ''}
-        </div>
-    ` : '';
-
-    row.innerHTML = `
-        <div class="message-inner">
-            <div class="message-avatar">🔬</div>
-            <div class="message-content">
-                <details class="ablation-proof-details">
-                    <summary class="ablation-proof-toggle">View raw model output (ablation proof)</summary>
-                    <div class="ablation-proof-raw">${escapeHtml(rawOutput)}</div>
-                    ${metricsHtml}
-                </details>
-            </div>
-        </div>
-    `;
-
-    container.appendChild(row);
-    container.scrollTop = container.scrollHeight;
-}
-
+// Helpers
 function addChatMessage(role, text, isTyping = false) {
     const container = document.getElementById('chat-messages');
     const row = document.createElement('div');
-    const rowClass = role === 'user' ? 'user-row' : 'assistant-row';
-    row.className = `message-row ${rowClass}`;
-
-    const avatar = role === 'user' ? '👤' : '✦';
-    let contentHtml;
-
-    if (isTyping) {
-        contentHtml = `<div class="typing-dots"><span></span><span></span><span></span></div>`;
-    } else {
-        contentHtml = escapeHtml(text);
-    }
-
+    row.className = `message-row ${role === 'user' ? 'user-row' : 'assistant-row'}`;
+    const avatar = role === 'user' ? 'U' : 'V';
+    let contentHtml = isTyping
+        ? '<div class="typing-dots"><span></span><span></span><span></span></div>'
+        : escapeHtml(text);
     row.innerHTML = `
         <div class="message-inner">
             <div class="message-avatar">${avatar}</div>
             <div class="message-content">${contentHtml}</div>
-        </div>
-    `;
-
+        </div>`;
     container.appendChild(row);
     container.scrollTop = container.scrollHeight;
     return row;
 }
 
-function addStatusCard(container, icon, label, value, type = '', isHtml = false) {
+function addStatusCard(container, label, value, type = '', isHtml = false) {
     const card = document.createElement('div');
     card.className = 'status-card';
-
     card.innerHTML = `
         <div class="status-card-header">
-            <span class="status-icon">${icon}</span>
             <span class="status-label">${label}</span>
         </div>
         <div class="status-value ${type}">
             ${isHtml ? value : escapeHtml(value)}
-        </div>
-    `;
-
+        </div>`;
     container.appendChild(card);
     return card;
+}
+
+function addSidebarEntry(text) {
+    const hist = document.getElementById('sidebar-history');
+    if (!hist) return;
+    const item = document.createElement('div');
+    item.className = 'sidebar-history-item';
+    const label = text.length > 30 ? text.substring(0, 30) + '...' : text;
+    item.innerHTML = `<span>${escapeHtml(label)}</span><button class="more-btn">...</button>`;
+    hist.prepend(item);
 }
 
 function escapeHtml(text) {

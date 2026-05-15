@@ -96,11 +96,13 @@ def find_target_layers(
 
     # Early layers encode basic token features, not concepts — never ablate them
     MIN_LAYER = 4
+    # Final layers handle token projection/output formatting. Ablating them causes hallucination gibberish.
+    MAX_LAYER = 27
 
     scores = trace_activations(forget_text)
 
-    # Filter out early layers before ranking
-    filtered_scores = {k: v for k, v in scores.items() if k >= MIN_LAYER}
+    # Filter out early and late layers before ranking
+    filtered_scores = {k: v for k, v in scores.items() if MIN_LAYER <= k <= MAX_LAYER}
 
     sorted_layers = sorted(filtered_scores.items(), key=lambda x: x[1], reverse=True)
     top_layers = sorted_layers[:top_k]
