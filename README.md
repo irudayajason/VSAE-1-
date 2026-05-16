@@ -1,202 +1,95 @@
-# VSAE — Vector Space Ablation Engine
+# Vector Space Ablation Engine (VSAE)
 
-> Surgically remove specific knowledge from a trained Large Language Model — without retraining.
+**Surgical Knowledge Removal from LLMs — Optimized for Phi-2**
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red?logo=pytorch)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?logo=fastapi)
-![HuggingFace](https://img.shields.io/badge/HuggingFace-Transformers-yellow?logo=huggingface)
-![License](https://img.shields.io/badge/License-MIT-purple)
-![Status](https://img.shields.io/badge/Status-In%20Development-orange)
+The Vector Space Ablation Engine (VSAE) is a powerful tool designed to surgically remove specific concepts or knowledge from Large Language Models without requiring full retraining or fine-tuning. By utilizing orthogonal projection and activation tracing, VSAE locates where a concept lives in the network's latent space and dynamically ablates it.
 
----
+Currently, this engine is specifically optimized and focused on the **Microsoft Phi-2** model, allowing for high-precision unlearning in resource-constrained environments using float16 precision.
 
-## What is VSAE?
+## 🚀 Features
 
-VSAE is an open-source API tool that acts as a **surgical "delete button"** for AI models. It allows developers to remove specific concepts, facts, or private data from a trained LLM by mathematically modifying its internal weight matrices — without the need for expensive retraining.
+- **Concept Embedding & Projection**: Generates precise "forget vectors" for any target concept.
+- **Dynamic Subspace Locator**: Automatically identifies the most relevant attention and feed-forward layers (`W_Q`, `W_K`, `W_V`, `dense`, `fc1`) responsible for a concept using activation tracing.
+- **Real-Time Ablation**: Applies orthogonal projection to surgically remove the concept from the model's weights on the fly.
+- **Before & After Proofs**: Instantly generates completions before and after ablation to mathematically verify the unlearning process via perplexity shifts.
+- **Guardrailed Probing**: A built-in chat interface that allows you to safely interact with the ablated model, complete with perplexity-based guardrails.
+- **Full Evaluation Suite**: Run comprehensive tests on your ablations to ensure the model retains its general capabilities while forgetting the target concept.
+- **Premium UI**: A sleek, two-panel dark mode interface for managing ablations and probing the model interactively.
 
-### The Problem
-When AI models like GPT-2, Llama, or Mistral are trained on billions of documents, they can accidentally memorize:
-- Private medical records
-- Copyrighted materials
-- Confidential company documents
-- Personal communications
+## 📁 Project Structure
 
-Laws like **GDPR**, **CCPA**, and **PDPB** legally require companies to delete this data on request — but existing solutions are either too expensive or ineffective.
+- **`backend/`**: The core ablation engine built with FastAPI and PyTorch.
+  - `main.py`: The FastAPI server and API endpoints.
+  - `ablation.py`: Core logic for applying orthogonal projections to model weights.
+  - `embedding.py`: Handles model initialization, text generation, and forget vector creation.
+  - `locator.py`: Identifies the top-k layers most activated by the forget concept.
+  - `evaluate.py`: Suite for evaluating model perplexity and ablation success.
+- **`frontend/`**: A lightweight, vanilla HTML/JS/CSS frontend.
+  - Served directly via the FastAPI backend for a seamless full-stack experience.
 
-### The Solution
-VSAE applies an **orthogonal projection** directly to the model's weight matrices to erase the target concept:
+## 🛠️ Installation & Setup
 
-```
-W_new = W - (W · v · vᵀ) / (vᵀ · v)
-```
+### Prerequisites
+- Python 3.10+
+- PyTorch (with MPS/CUDA support recommended for Phi-2)
+- Minimum 16GB RAM (Apple Silicon or dedicated GPU recommended)
 
-Where `v` is the forget vector representing the concept to be erased and `W` is the target weight matrix.
-
----
-
-## How It Works
-
-```
-Input Text (concept to forget)
-        ↓
-Embedding Module → extracts forget vector v
-        ↓
-Subspace Locator → finds target QKV matrices via activation tracing
-        ↓
-Ablation Engine → applies orthogonal projection to W
-        ↓
-Output Module → returns modified model weights
-```
-
----
-
-## Features
-
-- **Surgical knowledge removal** — targets only the relevant weight matrices
-- **No retraining required** — works directly on existing model weights
-- **Rollback support** — undo any ablation instantly
-- **Evaluation suite** — proves the concept was erased with 3 test methodologies
-- **REST API** — simple FastAPI wrapper for easy integration
-- **Apple Silicon (MPS) + CUDA support** — runs on Mac M-series and NVIDIA GPUs
-
----
-
-## Evaluation Methods
-
-| Method | What it checks |
-|--------|---------------|
-| **Membership Inference Attack** | Model can no longer recognize the forgotten data |
-| **Perplexity Score** | Model is "confused" by the erased content (score spikes) |
-| **Direct Probing** | Model cannot answer questions about the erased concept |
-
----
-
-## Tech Stack
-
-| Component | Version | Purpose |
-|-----------|---------|---------|
-| Python | 3.11+ | Core language |
-| PyTorch | 2.0+ | Weight tensor manipulation |
-| HuggingFace Transformers | 4.35+ | Model loading and tokenization |
-| NumPy | 1.24+ | Linear algebra operations |
-| FastAPI | 0.100+ | REST API framework |
-| Pydantic | 2.0+ | Schema validation |
-| GPT-2 | 117M params | Prototype model |
-
----
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Server and model status |
-| `/ablate` | POST | Run the ablation pipeline |
-| `/probe` | POST | Chat with the model |
-| `/evaluate` | POST | Run full evaluation suite |
-| `/rollback` | POST | Revert to original weights |
-
-### Example Request
-```json
-POST /ablate
-{
-  "model_id": "gpt2",
-  "forget_text": "Harry Potter lives at 4 Privet Drive",
-  "top_k_layers": 3,
-  "target_matrices": ["W_Q", "W_K", "W_V"]
-}
-```
-
-### Example Response
-```json
-{
-  "status": "success",
-  "ablation_id": "uuid-string",
-  "timestamp": "2026-03-07T00:00:00Z",
-  "targeted_layers": [8, 10, 11],
-  "original_weight_hash": "sha256-hex",
-  "modified_weight_hash": "sha256-hex",
-  "correctness_check": true
-}
-```
-
----
-
-## Installation
-
+### 1. Clone the repository
 ```bash
-# Clone the repo
-git clone https://github.com/irudayajason/VASE.git
-cd VASE
-
-# Create virtual environment
-python3.11 -m venv venv
-
-# Activate (Mac/Linux)
-source venv/bin/activate
-
-# Activate (Windows)
-venv\Scripts\activate
-
-# Install dependencies
-pip install torch torchvision torchaudio
-pip install transformers numpy fastapi uvicorn pydantic pytest
+git clone https://github.com/irudayajason/VSAE.git
+cd VSAE
 ```
 
----
+### 2. Set up the Python Environment
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+pip install -r backend/requirements.txt # If available, otherwise install torch, transformers, fastapi, uvicorn
+```
 
-## Running the API
+### 3. Run the Engine
+You can start the unified engine (which serves both the API and the UI) using Uvicorn:
 
 ```bash
 uvicorn backend.main:app --reload
 ```
 
-Then open:
-- **API:** http://localhost:8000/health
-- **Docs:** http://localhost:8000/docs
-
----
-
-## Project Structure
-
+### 4. Access the UI
+Open your browser and navigate to:
 ```
-vsae/
-├── backend/
-│   ├── __init__.py
-│   ├── main.py          ← FastAPI app + endpoints
-│   ├── embedding.py     ← Forget vector extraction
-│   ├── locator.py       ← Subspace and layer targeting
-│   ├── ablation.py      ← Core projection formula
-│   └── evaluate.py      ← MIA, perplexity, probing tests
-├── frontend/            ← Next.js + Tailwind UI
-├── venv/
-├── .gitignore
-└── README.md
+http://localhost:8000
 ```
 
+## 🔌 API Endpoints
+
+The backend provides a robust REST API for programmatic access:
+
+- `GET /health` - System status and currently loaded model info.
+- `GET /ablations` - List all active ablations.
+- `POST /embed` - Generate the semantic "forget vector" for a concept.
+- `POST /ablate` - Run the full ablation pipeline (finds layers, applies projection, and returns before/after proofs).
+- `POST /probe` - Chat with the loaded model (includes guardrails for ablated concepts).
+- `POST /evaluate` - Generate a detailed statistical report on ablation impact.
+- `POST /rollback` - Instantly reverse an active ablation.
+
+## ⚠️ Disclaimer
+
+This tool manipulates the weights of LLMs in memory. While it is designed to be safe and reversible via the `/rollback` endpoint, applying too many overlapping ablations or using extreme ablation strengths may degrade the general performance of the Phi-2 model.
+
 ---
+*Built for surgical AI control and interpretability.*
 
 ## Development Timeline
 
 | Weeks | Milestone |
 |-------|-----------|
-| 1–2 | Environment setup, GPT-2 loading, literature research |
+| 1–2 | Environment setup, GPT-2 & Phi-2 loading, literature research |
 | 3–4 | Embedding Module — forget vector extraction |
 | 5–6 | Ablation Engine — orthogonal projection formula |
-| 7–8 | Full pipeline on GPT-2 weights + rollback |
-| 9–10 | FastAPI endpoints + Next.js frontend UI |
-| 11–12 | Evaluation suite — MIA, perplexity, probing |
+| 7–8 | Full pipeline on model weights + rollback |
+| 9–10 | FastAPI endpoints + HTML/JS frontend UI |
+| 11–12 | Evaluation suite — Perplexity, probing |
 | 13–14 | Final testing, demo mode, project report |
-
----
-
-## ⚠️ Known Limitations
-
-- **Relearning:** Model may re-acquire suppressed concepts if fine-tuned on similar data
-- **Collateral Damage:** Projection may weaken semantically adjacent concepts
-- **Multi-layer Spread:** Knowledge distributed across many layers makes 100% erasure difficult to guarantee
-
----
 
 ## Founders
 
@@ -206,16 +99,6 @@ vsae/
 | Mithun A | Literature Research + Embedding Module | Intel Core Ultra i5 125H |
 | Mohammed Nahyan Khan | GPU Testing + Frontend | Intel i7 13th Gen + RTX 4050 |
 
----
-
-## References
-
-- Cao & Yang (2015) — Machine Unlearning
-- Golatkar et al (2020) — Eternal Sunshine of the Spotless Net
-- Meng et al (2022) — ROME: Locating and Editing Factual Associations in GPT
-
----
-
-## 📄 License
+## License
 
 MIT License — see [LICENSE](LICENSE) for details.

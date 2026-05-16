@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="VSAE -- Surgically remove specific knowledge from Phi-2 without retraining.">
+    <title>VSAE -- Vector Space Ablation Engine</title>
+    <link rel="stylesheet" href="/static/style.css?v=13">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23c8a830'>V</text></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Dynamic Background -->
+    <div class="bg-layer">
+        <div class="bg-glow bg-glow-1"></div>
+        <div class="bg-glow bg-glow-2"></div>
+        <div class="bg-glow bg-glow-3"></div>
+        <div class="bg-rays"></div>
+    </div>
+    <div class="bg-huge-text">Ablation</div>
+
+    <!-- App Shell -->
+    <div class="app-shell">
+
+        <!-- Sidebar -->
+        <nav class="sidebar collapsed" id="sidebar">
+            <div class="sidebar-top-actions">
+                <button class="sidebar-icon-btn" onclick="toggleSidebar()" title="Toggle sidebar">
+                    <svg viewBox="0 0 24 24"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+                </button>
+                <button class="sidebar-icon-btn" onclick="resetToWelcome()" title="New chat">
+                    <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+            </div>
+            <div class="sidebar-search">
+                <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" placeholder="Search" id="sidebar-search">
+            </div>
+            <div class="sidebar-section-label">Recent</div>
+            <div class="sidebar-history" id="sidebar-history">
+                <div class="sidebar-history-item">
+                    <span>Ask about capabilities</span>
+                    <button class="more-btn">...</button>
+                </div>
+            </div>
+            <div class="sidebar-upgrade">
+                <div class="upgrade-text">
+                    <strong>VSAE Engine</strong><br>
+                    <span>Surgical knowledge removal</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Golden Dust Background — behind everything -->
+        <canvas id="dust-canvas"></canvas>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Top Bar -->
+            <div class="top-bar">
+                <div class="top-bar-brand">
+                    <button class="sidebar-toggle-btn" id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+                        <svg viewBox="0 0 24 24" width="18" height="18"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                    </button>
+                    <svg class="brand-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <span class="brand-name">VSAE</span>
+                </div>
+                <div class="top-bar-right">
+                    <div class="status-dot-wrap">
+                        <span class="dot"></span>
+                        <span id="model-status-text" class="status-text">Phi-2 -- Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Welcome View -->
+            <div class="welcome-view" id="welcome-view">
+                <!-- 3D Globe Sphere -->
+                <div class="sphere-container">
+                    <canvas id="sphere-canvas"></canvas>
+                    <div class="sphere">
+                        <div class="sphere-inner"></div>
+                        <div class="sphere-shine"></div>
+                        <div class="sphere-ring sphere-ring-1"></div>
+                        <div class="sphere-ring sphere-ring-2"></div>
+                        <div class="sphere-ring sphere-ring-3"></div>
+                        <div class="sphere-lat sphere-lat-1"></div>
+                        <div class="sphere-lat sphere-lat-2"></div>
+                        <div class="sphere-lat sphere-lat-3"></div>
+                        <div class="sphere-highlight"></div>
+                    </div>
+                </div>
+
+                <h1 class="main-heading">Welcome to <em>VSAE!</em></h1>
+                <p class="sub-heading">Which concept would you like to analyze today?</p>
+
+                <!-- Main Input Card -->
+                <div class="glass-input-card">
+                    <textarea
+                        class="main-input"
+                        id="chat-input"
+                        placeholder="Tell us about your capabilities..."
+                        rows="1"
+                        onkeydown="handleChatKeyDown(event)"
+                        oninput="autoResize(this); toggleSendBtn()"
+                    ></textarea>
+                    <div class="input-bar">
+                        <div class="input-bar-left">
+                            <button class="input-icon-btn" onclick="toggleDrawer()" title="Ablation Engine">
+                                <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            </button>
+                            <span class="model-tag">Phi-2</span>
+                        </div>
+                        <button class="send-btn" id="send-btn" onclick="handleSendChat()" disabled>
+                            <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Feature Cards -->
+                <div class="feature-cards">
+                    <button class="feature-card" onclick="sendQuickPrompt('Where does Harry Potter live?')">
+                        <div class="feature-icon" style="background: linear-gradient(135deg, #c8a830, #8a7520);">
+                            <svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </div>
+                        <div class="feature-text">
+                            <strong>Probe</strong>
+                            <em>knowledge</em>
+                        </div>
+                        <p class="feature-desc">Test what Phi-2 remembers before and after ablation.</p>
+                    </button>
+                    <button class="feature-card" onclick="toggleDrawer()">
+                        <div class="feature-icon" style="background: linear-gradient(135deg, #c8a830, #8a7520);">
+                            <svg width="18" height="18" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        </div>
+                        <div class="feature-text">
+                            <strong>Ablate</strong>
+                            <em>concepts</em>
+                        </div>
+                        <p class="feature-desc">Surgically erase knowledge from model weights.</p>
+                    </button>
+                    <button class="feature-card" onclick="sendQuickPrompt('Explain quantum computing')">
+                        <div class="feature-icon" style="background: linear-gradient(135deg, #c8a830, #8a7520);">
+                            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M2 12h4l3-9 5 18 3-9h5"/></svg>
+                        </div>
+                        <div class="feature-text">
+                            <strong>Evaluate</strong>
+                            <em>the results</em>
+                        </div>
+                        <p class="feature-desc">Measure perplexity and verify the ablation worked.</p>
+                    </button>
+                </div>
+
+                <div class="footer-text">Built with FastAPI and PyTorch -- Phi-2 2.7B</div>
+            </div>
+
+            <!-- Chat View -->
+            <div class="chat-view" id="chat-view">
+                <div class="chat-top-bar">
+                    <button class="back-btn" onclick="resetToWelcome()">
+                        <svg viewBox="0 0 24 24"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                        Back
+                    </button>
+                    <button class="top-pill" onclick="toggleDrawer()">
+                        <svg viewBox="0 0 24 24" width="14" height="14"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        Ablation Engine
+                    </button>
+                </div>
+                <div class="chat-messages" id="chat-messages"></div>
+                <div class="chat-input-bottom-wrap">
+                    <div class="glass-input-card">
+                        <textarea
+                            class="main-input"
+                            id="chat-input-bottom"
+                            placeholder="Ask Phi-2 anything..."
+                            rows="1"
+                            onkeydown="handleChatKeyDown(event)"
+                            oninput="autoResize(this); toggleSendBtn()"
+                        ></textarea>
+                        <div class="input-bar">
+                            <div class="input-bar-left">
+                                <button class="input-icon-btn" onclick="toggleDrawer()" title="Ablation Engine">
+                                    <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                                </button>
+                                <span class="model-tag">Phi-2</span>
+                            </div>
+                            <button class="send-btn" id="send-btn-bottom" onclick="handleSendChat()" disabled>
+                                <svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Ablation Drawer -->
+        <div class="drawer-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
+        <div class="ablation-drawer" id="ablation-drawer">
+            <div class="drawer-header">
+                <div class="drawer-header-left">
+                    <svg class="drawer-brand-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    <div>
+                        <div class="drawer-title">Ablation Engine</div>
+                        <div class="drawer-subtitle">Erase concepts from Phi-2</div>
+                    </div>
+                </div>
+                <button class="drawer-close" onclick="closeDrawer()">
+                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="drawer-body">
+                <div class="drawer-field">
+                    <label>CONCEPT TO FORGET</label>
+                    <textarea
+                        id="forget-text"
+                        placeholder="Enter the text or concept to erase...&#10;&#10;Example: Harry Potter lives at 4 Privet Drive"
+                        rows="4"
+                    ></textarea>
+                </div>
+                <div class="drawer-config-row">
+                    <div class="drawer-field">
+                        <label>TARGET LAYERS</label>
+                        <select id="top-k">
+                            <option value="3">3 Layers</option>
+                            <option value="5" selected>5 Layers -- Rec.</option>
+                            <option value="8">8 Layers -- Aggressive</option>
+                        </select>
+                    </div>
+                    <div class="drawer-field">
+                        <label>STRENGTH</label>
+                        <select id="ablation-strength">
+                            <option value="0.5">Low (0.5)</option>
+                            <option value="0.8">Mild (0.8)</option>
+                            <option value="1.0" selected>Standard (1.0) -- Rec.</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="ablate-btn" id="ablate-btn" onclick="handleAblate()">
+                    <div class="spinner"></div>
+                    <span class="btn-text">Run Ablation</span>
+                </button>
+                <div class="status-section" id="status-section">
+                    <div class="empty-status" id="empty-status">
+                        <p>Enter a concept above and click <strong>Run Ablation</strong> to erase it from Phi-2</p>
+                    </div>
+                </div>
+                <button class="rollback-btn" id="rollback-btn" onclick="handleRollback()" disabled>
+                    Rollback to Original Weights
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="/static/sphere3d.js?v=22"></script>
+    <script src="/static/dustfx.js?v=1"></script>
+    <script src="/static/app.js?v=11"></script>
+</body>
+</html>
