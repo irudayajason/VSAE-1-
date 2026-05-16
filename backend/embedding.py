@@ -250,65 +250,106 @@ def generate_text(
 ) -> str:
     """
     Generates text from the model given a prompt.
-    Uses Phi-2's instruct format for focused, concise answers.
+    Uses Phi-2's QA format for focused, concise answers.
+    Includes retry logic for when Phi-2 falls into quiz/exercise mode.
     """
     model, tokenizer, device = load_model()
-
-    # Phi-2 responds best to this instruction format
-    formatted_prompt = (
-        f"Instruct: Answer the following question concisely in 1-3 sentences.\n"
-        f"Question: {prompt}\n"
-        f"Output:"
-    )
-
-    inputs = tokenizer(
-        formatted_prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=512
-    ).to(device)
-
-    with torch.no_grad():
-        output_ids = model.generate(
-            input_ids=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
-            max_new_tokens=max_tokens,
-            min_new_tokens=2,
-            do_sample=True,
-            temperature=0.1,
-            top_k=20,
-            top_p=0.95,
-            repetition_penalty=1.15,
-            pad_token_id=tokenizer.eos_token_id
-        )
-
-    generated = tokenizer.decode(
-        output_ids[0][inputs["input_ids"].shape[1]:],
-        skip_special_tokens=True
-    ).strip()
-
-    # ── Post-processing: clean up common Phi-2 artifacts ──────────
     import re as _re
 
-    # Stop at any new instruction/question block
-    for stop_marker in ["Question:", "Instruct:", "Output:", "###", "```"]:
-        if stop_marker in generated:
-            generated = generated.split(stop_marker)[0].strip()
+    def _generate_once(fmt_prompt: str, temp: float, max_tok: int) -> str:
+        inputs = tokenizer(
+            fmt_prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=512
+        ).to(device)
 
-    # Remove code blocks that Phi-2 sometimes hallucinates
-    generated = _re.sub(r'#include\s*<.*', '', generated).strip()
-    generated = _re.sub(r'\b(int|void|char|float|double)\s+\w+\s*\(.*', '', generated).strip()
+        with torch.no_grad():
+            output_ids = model.generate(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs["attention_mask"],
+                max_new_tokens=max_tok,
+                do_sample=True,
+                temperature=temp,
+                top_k=30,
+                top_p=0.85,
+                repetition_penalty=1.4,
+                pad_token_id=tokenizer.eos_token_id,
+                use_cache=True,
+            )
 
-    # Remove "A:" or "Answer:" prefix if present
-    generated = _re.sub(r'^(A:|Answer:)\s*', '', generated).strip()
+        return tokenizer.decode(
+            output_ids[0][inputs["input_ids"].shape[1]:],
+            skip_special_tokens=True
+        ).strip()
 
-    # Trim trailing incomplete sentences (no period/question mark at end)
-    sentences = _re.split(r'(?<=[.!?])\s+', generated)
-    if len(sentences) > 1 and not sentences[-1].rstrip().endswith(('.', '!', '?')):
-        sentences = sentences[:-1]
-    generated = ' '.join(sentences).strip()
+    def _clean(text: str) -> str:
+        """Post-process Phi-2 output to remove common artifacts."""
+        # Stop at any new instruction/question block
+        for stop_marker in ["Question:", "Instruct:", "Output:", "###", "```", "Exercise", "Answer the following"]:
+            if stop_marker in text:
+                text = text.split(stop_marker)[0].strip()
 
-    # Final safety: if result is empty or very short, give a fallback
+        # Remove code blocks that Phi-2 sometimes hallucinates
+        text = _re.sub(r'#include\s*<.*', '', text).strip()
+        text = _re.sub(r'\b(int|void|char|float|double)\s+\w+\s*\(.*', '', text).strip()
+
+        # Remove "A:" or "Answer:" prefix if present
+        text = _re.sub(r'^(A:|Answer:)\s*', '', text).strip()
+
+        # Remove fill-in-the-blank patterns: ____ or ___ (quiz-mode artifact)
+        text = _re.sub(r'_{2,}\s*\([^)]*\)', '', text)  # ____(a, b or c)
+        text = _re.sub(r'_{2,}', '', text)                # bare ____
+        # Clean up leftover double spaces / punctuation gaps
+        text = _re.sub(r'\s{2,}', ' ', text).strip()
+        text = _re.sub(r'\s+([.,;:!?])', r'\1', text)
+
+        # Remove multiple-choice patterns: (a) ... (b) ... (c) ...
+        text = _re.sub(r'\([a-d]\)\s*[^(]*', '', text).strip()
+
+        # Remove numbered list exercise formatting
+        text = _re.sub(r'^\d+[\.\)]\s*', '', text, flags=_re.MULTILINE).strip()
+
+        # Trim trailing incomplete sentences
+        sentences = _re.split(r'(?<=[.!?])\s+', text)
+        if len(sentences) > 1 and not sentences[-1].rstrip().endswith(('.', '!', '?')):
+            sentences = sentences[:-1]
+        text = ' '.join(sentences).strip()
+
+        return text
+
+    def _is_bad_output(text: str) -> bool:
+        """Check if the output is quiz-mode, blanks, or too short."""
+        if len(text) < 5:
+            return True
+        if _re.search(r'_{2,}', text):
+            return True
+        if _re.search(r'\([a-d]\)', text):
+            return True
+        if any(kw in text.lower() for kw in ["fill in", "choose the", "select the", "which of the following"]):
+            return True
+        return False
+
+    # ── Attempt 1: Phi-2 QA format ────────────────────────────────
+    formatted_prompt = (
+        f"Write a short factual answer to the question below. "
+        f"Do not create exercises, quizzes, or fill-in-the-blank. "
+        f"Just answer directly.\n\n"
+        f"Q: {prompt}\n"
+        f"A:"
+    )
+
+    generated = _generate_once(formatted_prompt, temperature, max_tokens)
+    generated = _clean(generated)
+
+    # ── Attempt 2: Retry with simpler prompt if output is bad ─────
+    if _is_bad_output(generated):
+        logger.info(f"Retry: first attempt was bad ('{generated[:60]}...')")
+        simple_prompt = f"{prompt}\nThe answer is:"
+        generated = _generate_once(simple_prompt, 0.2, max_tokens)
+        generated = _clean(generated)
+
+    # Final safety
     if len(generated) < 5:
         generated = "I'm unable to generate a clear response for this query."
 

@@ -207,6 +207,11 @@ def probe_endpoint(request: ProbeRequest):
         # The model weights ARE genuinely ablated via orthogonal projection.
         # This guardrail supplements the ablation by presenting a clean
         # "I have no information" message instead of garbled output.
+        #
+        # DESIGN: LLM hidden-state embeddings live in a narrow cone — cosine
+        # similarity between ANY two prompts is naturally very high (0.6-0.8+).
+        # Therefore we NEVER trigger on similarity alone. We always require
+        # meaningful keyword overlap with the ablated concept.
         if _active_forget_vectors:
             prompt_emb = get_prompt_embedding(request.prompt)
 
@@ -220,16 +225,36 @@ def probe_endpoint(request: ProbeRequest):
                     forget_v.unsqueeze(0).float()
                 ).item()
 
-                # --- Keyword overlap (specific words only) ---
+                # --- Keyword overlap (concept-specific words only) ---
+                # Very broad stop-list: remove all common English words,
+                # question words, generic role nouns, and filler words so
+                # that only the *specific entities* of the forget text remain.
                 GENERIC_WORDS = {
+                    # articles / prepositions / conjunctions
                     "the", "and", "for", "that", "this", "with", "from", "are",
                     "was", "were", "has", "have", "been", "not", "but", "what",
                     "who", "how", "can", "will", "its", "does", "did", "get",
-                    "also", "been", "being", "could", "would", "should", "may",
+                    "also", "being", "could", "would", "should", "may",
+                    # generic role / descriptor words (never concept-specific)
                     "ceo", "president", "founder", "director", "manager",
                     "color", "colour", "name", "age", "size", "type", "kind",
                     "tell", "about", "know", "said", "says", "much", "many",
-                    "since", "been", "become", "one", "most", "world",
+                    "since", "become", "one", "most", "world",
+                    # common verbs & modals
+                    "is", "was", "be", "do", "go", "no", "yes", "had",
+                    "his", "her", "him", "she", "he", "they", "them", "their",
+                    "which", "when", "where", "why", "there", "here",
+                    "some", "any", "all", "each", "every", "both",
+                    "very", "more", "than", "then", "just", "only",
+                    "like", "into", "over", "after", "before", "between",
+                    "through", "during", "under", "above", "below",
+                    "other", "another", "such", "same", "different",
+                    "make", "made", "take", "took", "give", "gave",
+                    "come", "came", "see", "saw", "new", "old", "first",
+                    "last", "long", "great", "little", "own", "well",
+                    "back", "still", "too", "even", "now", "way",
+                    "called", "known", "part", "place", "people", "time",
+                    "information", "topic", "question", "answer",
                 }
 
                 forget_words = set(
@@ -245,27 +270,34 @@ def probe_endpoint(request: ProbeRequest):
 
                 logger.info(
                     f"Guardrail check: prompt='{request.prompt}' vs forget='{forget_text[:40]}...' "
-                    f"semantic={similarity:.4f}, matches={num_specific_matches}, "
-                    f"coverage={keyword_coverage:.0%} (matched: {keyword_overlap})"
+                    f"semantic_sim={similarity:.4f}, keyword_matches={num_specific_matches}, "
+                    f"coverage={keyword_coverage:.0%}, forget_kw={forget_words}, "
+                    f"prompt_kw={prompt_words}, overlap={keyword_overlap}"
                 )
 
-                # Trigger conditions — tuned against real similarity scores:
-                #   "who is the CEO of apple"  → sim=0.74, match=1 (apple) → SHOULD trigger
-                #   "apple from kashmir"       → sim=0.53, match=1 (apple) → should NOT trigger
-                #   "tell me about Tim Cook"   → sim=0.xx, match=2 (tim,cook) → SHOULD trigger
+                # ── Trigger logic ──────────────────────────────────────
+                # The ONLY way to trigger the guardrail is through keyword
+                # overlap. Semantic similarity alone is NEVER sufficient
+                # because Phi-2 hidden states are naturally tightly clustered.
                 #
-                # Rules:
-                # 1. Very high semantic (>0.85) — near-identical prompt
-                # 2. Moderate semantic (>0.65) + at least 1 specific keyword
-                # 3. 2+ specific keywords covering >50% of forget words
+                # Rules (ALL require keyword evidence):
+                # 1. ≥2 concept-specific keywords match → definitely about
+                #    the ablated topic (e.g. "Queen" + "England")
+                # 2. 1 keyword match + very high semantic similarity (>0.92)
+                #    → likely a direct probe of the concept
+                # 3. Keyword coverage ≥ 60% of all concept words
+                #    → the prompt restates most of the ablated concept
                 triggered = (
-                    similarity > 0.85
-                    or (similarity > 0.65 and num_specific_matches >= 1)
-                    or (num_specific_matches >= 2 and keyword_coverage > 0.5)
+                    num_specific_matches >= 2
+                    or (num_specific_matches >= 1 and similarity > 0.92)
+                    or (num_specific_matches >= 1 and keyword_coverage >= 0.6)
                 )
 
                 if triggered:
-                    logger.info(f"Guardrail TRIGGERED for ablated concept")
+                    logger.info(
+                        f"Guardrail TRIGGERED — matches={num_specific_matches}, "
+                        f"sim={similarity:.4f}, coverage={keyword_coverage:.0%}"
+                    )
                     return {
                         "prompt": request.prompt,
                         "generated_text": "I have no information on that topic.",
@@ -288,7 +320,9 @@ def probe_endpoint(request: ProbeRequest):
             words_list = generated.split()
             unique_ratio = len(set(w.lower() for w in words_list)) / max(len(words_list), 1)
 
-            blank_patterns = generated.count("_")
+            # Count underscore runs (e.g. "____" = 1 blank pattern, not 4 chars)
+            # Phi-2 normally uses "____" as a fill-in-the-blank; only flag if excessive
+            blank_patterns = len(re.findall(r'_{2,}', generated))
             has_template_blanks = blank_patterns > 3
 
             alpha_chars = sum(c.isalpha() or c.isspace() for c in generated)
@@ -296,21 +330,21 @@ def probe_endpoint(request: ProbeRequest):
             alpha_ratio = alpha_chars / total_chars
 
             and_the_count = generated.lower().count("and the")
-            has_and_the_spam = and_the_count >= 4
+            has_and_the_spam = and_the_count >= 6  # raised from 4
 
             # Detect mixed alphanumeric gibberish like "H8I7V9D0R5W6X1Y"
             special_chars = sum(c in '#@*^~|\\{}[]<>' for c in generated)
-            has_special_spam = special_chars > 5
+            has_special_spam = special_chars > 8  # raised from 5
 
             # Detect random digit-letter mixing (hallucination artifacts)
             digit_count = sum(c.isdigit() for c in generated)
             digit_ratio = digit_count / total_chars
-            has_digit_gibberish = digit_ratio > 0.15  # More than 15% digits is suspicious
+            has_digit_gibberish = digit_ratio > 0.25  # raised from 0.15 — dates/years are fine
 
             is_garbled = (
-                unique_ratio < 0.3
+                unique_ratio < 0.2  # stricter — only catch truly broken repetition
                 or has_template_blanks
-                or alpha_ratio < 0.5
+                or alpha_ratio < 0.4  # lowered slightly — code/numbers in answers are ok
                 or has_and_the_spam
                 or has_special_spam
                 or has_digit_gibberish
@@ -318,7 +352,10 @@ def probe_endpoint(request: ProbeRequest):
 
             if is_garbled:
                 logger.info(
-                    f"Quality gate TRIGGERED: output='{generated[:80]}...'"
+                    f"Quality gate TRIGGERED: unique_ratio={unique_ratio:.2f}, "
+                    f"alpha_ratio={alpha_ratio:.2f}, blanks={blank_patterns}, "
+                    f"and_the={and_the_count}, specials={special_chars}, "
+                    f"digit_ratio={digit_ratio:.2f}, output='{generated[:80]}...'"
                 )
                 return {
                     "prompt": request.prompt,

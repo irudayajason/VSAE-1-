@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="VSAE -- Surgically remove specific knowledge from Phi-2 without retraining.">
     <title>VSAE -- Vector Space Ablation Engine</title>
-    <link rel="stylesheet" href="/static/style.css?v=11">
+    <link rel="stylesheet" href="/static/style.css?v=13">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23c8a830'>V</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -53,6 +53,9 @@
             </div>
         </nav>
 
+        <!-- Golden Dust Background — behind everything -->
+        <canvas id="dust-canvas"></canvas>
+
         <!-- Main Content -->
         <main class="main-content">
             <!-- Top Bar -->
@@ -76,6 +79,7 @@
             <div class="welcome-view" id="welcome-view">
                 <!-- 3D Globe Sphere -->
                 <div class="sphere-container">
+                    <canvas id="sphere-canvas"></canvas>
                     <div class="sphere">
                         <div class="sphere-inner"></div>
                         <div class="sphere-shine"></div>
@@ -251,6 +255,9 @@
 
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="/static/sphere3d.js?v=22"></script>
+    <script src="/static/dustfx.js?v=1"></script>
     <script src="/static/app.js?v=11"></script>
 </body>
 </html>
