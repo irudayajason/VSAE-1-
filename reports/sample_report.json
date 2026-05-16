@@ -1,0 +1,12 @@
+{
+  "ablation_id": "vsae_test_123",
+  "timestamp": "2026-05-16T20:00:00Z",
+  "concept": "test_forbidden_data",
+  "target_layers": [4, 5, 6],
+  "alpha": 0.8,
+  "pre_perplexity": 12.5,
+  "post_perplexity": 145.2,
+  "perplexity_delta": 132.7,
+  "forgetting_signal": "FORGOTTEN",
+  "config_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

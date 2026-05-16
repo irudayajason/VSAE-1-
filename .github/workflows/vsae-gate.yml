@@ -1,0 +1,111 @@
+name: VSAE Compliance Gate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'reports/**'
+  workflow_dispatch:
+
+jobs:
+  validate-compliance-reports:
+    name: Validate Compliance Reports
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+      
+      - name: Find compliance reports
+        id: find-reports
+        run: |
+          if [ -d "reports" ]; then
+            REPORTS=$(find reports -name "*.json" -type f)
+            if [ -z "$REPORTS" ]; then
+              echo "No JSON reports found in reports/ directory"
+              echo "report_count=0" >> $GITHUB_OUTPUT
+              echo "reports=" >> $GITHUB_OUTPUT
+            else
+              REPORT_COUNT=$(echo "$REPORTS" | wc -l)
+              echo "Found $REPORT_COUNT compliance report(s)"
+              echo "$REPORTS"
+              echo "report_count=$REPORT_COUNT" >> $GITHUB_OUTPUT
+              echo "reports<<EOF" >> $GITHUB_OUTPUT
+              echo "$REPORTS" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "reports/ directory does not exist"
+            echo "report_count=0" >> $GITHUB_OUTPUT
+            echo "reports=" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Validate compliance reports
+        if: steps.find-reports.outputs.report_count != '0'
+        run: |
+          FAILED=0
+          PASSED=0
+          TOTAL=${{ steps.find-reports.outputs.report_count }}
+          
+          echo "=========================================="
+          echo "VSAE COMPLIANCE GATE"
+          echo "=========================================="
+          echo "Validating $TOTAL compliance report(s)..."
+          echo ""
+          
+          while IFS= read -r report; do
+            if [ -n "$report" ]; then
+              echo "Validating: $report"
+              if python scripts/validate_compliance_report.py "$report"; then
+                PASSED=$((PASSED + 1))
+              else
+                echo ""
+                echo "❌ COMPLIANCE GATE FAILED: Report $report did not pass validation"
+                echo ""
+                FAILED=$((FAILED + 1))
+              fi
+            fi
+          done <<< "${{ steps.find-reports.outputs.reports }}"
+          
+          echo ""
+          echo "=========================================="
+          echo "VALIDATION SUMMARY"
+          echo "=========================================="
+          echo "Total reports: $TOTAL"
+          echo "Passed: $PASSED"
+          echo "Failed: $FAILED"
+          echo "=========================================="
+          
+          if [ $FAILED -gt 0 ]; then
+            echo ""
+            echo "❌ COMPLIANCE GATE FAILED: $FAILED report(s) did not pass validation"
+            exit 1
+          else
+            echo ""
+            echo "✅ COMPLIANCE GATE PASSED: All $TOTAL compliance report(s) verified"
+            exit 0
+          fi
+      
+      - name: No reports found
+        if: steps.find-reports.outputs.report_count == '0'
+        run: |
+          echo "=========================================="
+          echo "VSAE COMPLIANCE GATE"
+          echo "=========================================="
+          echo "⚠️  No compliance reports found in reports/ directory"
+          echo "This workflow validates JSON compliance reports."
+          echo "Skipping validation."
+          echo "=========================================="
+
+# Made with Bob
