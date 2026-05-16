@@ -52,7 +52,7 @@ class AblateRequest(BaseModel):
 class ProbeRequest(BaseModel):
     prompt: str
     max_tokens: int = 100
-    temperature: float = 0.5
+    temperature: float = 0.4  # lowered for deterministic, coherent output
 
 class EvaluateRequest(BaseModel):
     forget_text: str
@@ -310,7 +310,7 @@ def probe_endpoint(request: ProbeRequest):
         generated = generate_text(
             request.prompt,
             max_tokens=request.max_tokens,
-            temperature=request.temperature,
+            temperature=max(request.temperature, 0.01),  # clamp for safety
         )
 
         # ── Post-generation quality gate ──────────────────────────────

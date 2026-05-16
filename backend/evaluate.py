@@ -5,6 +5,11 @@ Three test methods:
 1. Perplexity Score — model should be "confused" by erased content
 2. Membership Inference Attack (MIA) — loss should spike on forgotten data
 3. Direct Probing — model should fail to answer questions about erased concept
+
+Optimizations:
+  - torch.inference_mode() for all evaluation passes
+  - use_cache=True on generation calls
+  - Tuned generation params for coherent post-ablation output
 """
 
 import torch
@@ -34,10 +39,11 @@ def compute_perplexity(text: str) -> float:
         max_length=512
     ).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model(
             input_ids=inputs["input_ids"],
-            labels=inputs["input_ids"]
+            labels=inputs["input_ids"],
+            use_cache=False,  # labels present → teacher forcing, no KV cache
         )
 
     loss = outputs.loss.item()
@@ -66,10 +72,11 @@ def membership_inference_attack(text: str) -> Dict:
         max_length=512
     ).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model(
             input_ids=inputs["input_ids"],
-            labels=inputs["input_ids"]
+            labels=inputs["input_ids"],
+            use_cache=False,
         )
 
     loss = outputs.loss.item()
@@ -99,6 +106,8 @@ def direct_probe(
 
     After ablation, the model should produce incoherent or wrong
     answers to prompts about the erased concept.
+
+    Uses tuned generation params for coherent output on non-ablated topics.
     """
     model, tokenizer, device = load_model()
 
@@ -109,15 +118,17 @@ def direct_probe(
         max_length=256
     ).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         output_ids = model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             max_new_tokens=max_tokens,
             do_sample=True,
-            temperature=0.7,
+            temperature=0.4,
             top_p=0.9,
-            pad_token_id=tokenizer.eos_token_id
+            repetition_penalty=1.2,
+            pad_token_id=tokenizer.eos_token_id,
+            use_cache=True,  # KV caching for speed
         )
 
     # Decode only the new tokens

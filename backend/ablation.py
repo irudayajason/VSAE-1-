@@ -9,6 +9,11 @@ the hidden state at each layer, not a single global vector.
 Formula:  W_new = W - alpha * (W · v · vᵀ) / (vᵀ · v)
 
 Phi-2 uses nn.Linear: W shape [out_dim, in_dim]
+
+Optimizations:
+  - Alpha decay: deeper layers get reduced alpha to preserve grammar
+  - Immediate float16 cast-back after float32 projection math
+  - Efficient in-place tensor operations where safe
 """
 
 import torch
@@ -52,7 +57,8 @@ def apply_projection(
     alpha>1.0 = over-project (more aggressive erasure, may hurt neighbors)
 
     NOTE: All math is done in float32 for numerical precision, then
-    the result is cast back to the original dtype.
+    the result is IMMEDIATELY cast back to the original dtype (float16)
+    to prevent memory thrashing from accumulating float32 tensors.
     """
     orig_dtype = W.dtype
     # Upcast to float32 for numerical precision — float16 loses too much
@@ -70,7 +76,63 @@ def apply_projection(
     outer = torch.outer(Wv, v_f32)       # [out_dim, in_dim]
     W_new = W_f32 - alpha * outer / v_norm_sq
 
+    # IMMEDIATELY cast back to original dtype (float16) to prevent
+    # memory thrashing from holding multiple float32 weight copies
     return W_new.to(orig_dtype)
+
+
+def _compute_layer_alpha(
+    alpha: float,
+    layer_idx: int,
+    target_layers: List[int],
+    total_model_layers: int = 32,
+) -> float:
+    """
+    Implements alpha decay: deeper layers get reduced alpha to preserve
+    the model's grammatical and linguistic capabilities.
+
+    The early layers identify concepts ("This is about Apple/Tim Cook"),
+    and the late layers format grammar and sentence structure. Ablating
+    late layers at full strength destroys the model's ability to produce
+    coherent English.
+
+    Strategy:
+      - Sort target layers by index
+      - The earliest half of selected layers get full alpha
+      - The later half get linearly decaying alpha down to 60% of original
+      - The very last layer in the selection gets the minimum (60%)
+
+    Example with alpha=1.0 and layers [5, 10, 15, 20, 25]:
+      Layer 5:  alpha=1.0   (full)
+      Layer 10: alpha=1.0   (full — still in early half)
+      Layer 15: alpha=0.9   (start of decay)
+      Layer 20: alpha=0.8   (deeper decay)
+      Layer 25: alpha=0.6   (minimum — preserves grammar)
+    """
+    sorted_layers = sorted(target_layers)
+    num_targets = len(sorted_layers)
+
+    if num_targets <= 1:
+        return alpha
+
+    position = sorted_layers.index(layer_idx)
+    midpoint = num_targets // 2
+
+    if position < midpoint:
+        # Early layers: full alpha
+        return alpha
+    else:
+        # Late layers: linear decay from 100% down to 60%
+        decay_range = num_targets - midpoint
+        decay_position = position - midpoint
+        decay_factor = 1.0 - (0.4 * decay_position / max(decay_range - 1, 1))
+        decayed_alpha = alpha * max(decay_factor, 0.6)
+
+        logger.info(
+            f"Alpha decay: layer {layer_idx} (position {position}/{num_targets}) "
+            f"→ alpha {alpha:.2f} * {decay_factor:.2f} = {decayed_alpha:.2f}"
+        )
+        return decayed_alpha
 
 
 def ablate(
@@ -80,19 +142,24 @@ def ablate(
 ) -> dict:
     """
     Main ablation function — applies orthogonal projection to target layers
-    using LAYER-SPECIFIC forget vectors.
+    using LAYER-SPECIFIC forget vectors with alpha decay.
 
     Args:
         layer_forget_vectors: Dict mapping layer_index -> forget vector for that layer.
                               Each vector is the concept's direction in that layer's space.
         target_layers: List of dicts with layer_index, target_matrices.
-        alpha: Projection strength. 1.0 = exact removal, >1.0 = aggressive.
+        alpha: Base projection strength. 1.0 = exact removal, >1.0 = aggressive.
+               Alpha is automatically decayed for deeper layers to preserve grammar.
     """
     model, tokenizer, device = load_model()
 
     ablation_id = str(uuid.uuid4())
     backup = {}
     layer_results = []
+
+    # Extract all target layer indices for alpha decay computation
+    all_target_indices = sorted([l["layer_index"] for l in target_layers])
+    total_model_layers = model.config.num_hidden_layers
 
     for layer_info in target_layers:
         layer_idx = layer_info["layer_index"]
@@ -102,6 +169,11 @@ def ablate(
         if layer_idx not in layer_forget_vectors:
             logger.warning(f"No forget vector for layer {layer_idx}, skipping")
             continue
+
+        # Compute decayed alpha for this layer's depth
+        layer_alpha = _compute_layer_alpha(
+            alpha, layer_idx, all_target_indices, total_model_layers
+        )
 
         forget_v = layer_forget_vectors[layer_idx]
         weights = get_target_weights(model, layer_idx, target_matrices)
@@ -113,8 +185,8 @@ def ablate(
             original_hash = _weight_hash(weight_param.data)
 
             with torch.no_grad():
-                # Use the LAYER-SPECIFIC forget vector
-                new_weight = apply_projection(weight_param.data, forget_v, alpha)
+                # Use the LAYER-SPECIFIC forget vector with DECAYED alpha
+                new_weight = apply_projection(weight_param.data, forget_v, layer_alpha)
                 weight_param.data.copy_(new_weight)
 
             modified_hash = _weight_hash(weight_param.data)
@@ -122,13 +194,14 @@ def ablate(
             layer_results.append({
                 "layer": layer_idx,
                 "matrix": weight_name,
+                "alpha_used": round(layer_alpha, 3),
                 "original_hash": original_hash,
                 "modified_hash": modified_hash,
                 "changed": original_hash != modified_hash
             })
 
             logger.info(
-                f"Layer {layer_idx} {weight_name}: "
+                f"Layer {layer_idx} {weight_name} (alpha={layer_alpha:.2f}): "
                 f"{original_hash} -> {modified_hash} "
                 f"({'CHANGED' if original_hash != modified_hash else 'UNCHANGED'})"
             )
@@ -142,11 +215,12 @@ def ablate(
         "layer_results": layer_results,
         "status": "success",
         "alpha": alpha,
+        "alpha_decay": "enabled",
         "correctness_check": all(r["changed"] for r in layer_results)
     }
     _ablation_metadata[ablation_id] = metadata
 
-    logger.info(f"Ablation {ablation_id} complete — {len(layer_results)} matrices modified")
+    logger.info(f"Ablation {ablation_id} complete — {len(layer_results)} matrices modified (alpha decay enabled)")
     return metadata
 
 

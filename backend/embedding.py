@@ -2,6 +2,11 @@
 Embedding Module — handles model loading, forget vector extraction, and text generation.
 
 Supports: Phi-2 (microsoft/phi-2) only.
+
+Optimizations:
+  - torch.inference_mode() for all read-only passes (faster than no_grad)
+  - use_cache=True on all generate() calls for KV caching
+  - Tuned generation params for coherent post-ablation output
 """
 
 import torch
@@ -125,11 +130,14 @@ def get_forget_vector(forget_text: str) -> torch.Tensor:
 
     logger.info(f"Tokenized input: {inputs['input_ids'].shape[1]} tokens")
 
-    with torch.no_grad():
+    # inference_mode is strictly faster than no_grad — disables even more
+    # autograd tracking overhead that no_grad leaves enabled.
+    with torch.inference_mode():
         outputs = model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            output_hidden_states=True
+            output_hidden_states=True,
+            use_cache=False,  # no KV cache needed for single forward pass
         )
 
     # Extract last hidden state: [batch, seq_len, hidden_dim]
@@ -174,11 +182,12 @@ def get_layerwise_forget_vectors(forget_text: str) -> Dict[int, torch.Tensor]:
 
     logger.info(f"Extracting per-layer forget vectors for {inputs['input_ids'].shape[1]} tokens")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            output_hidden_states=True
+            output_hidden_states=True,
+            use_cache=False,
         )
 
     # outputs.hidden_states is a tuple of (n_layers + 1) tensors:
@@ -226,11 +235,12 @@ def get_prompt_embedding(prompt: str) -> torch.Tensor:
         padding=True
     ).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
-            output_hidden_states=True
+            output_hidden_states=True,
+            use_cache=False,
         )
 
     last_hidden_state = outputs.hidden_states[-1]
@@ -246,12 +256,18 @@ def get_prompt_embedding(prompt: str) -> torch.Tensor:
 def generate_text(
     prompt: str,
     max_tokens: int = 60,
-    temperature: float = 0.3,
+    temperature: float = 0.4,
 ) -> str:
     """
     Generates text from the model given a prompt.
     Uses Phi-2's QA format for focused, concise answers.
     Includes retry logic for when Phi-2 falls into quiz/exercise mode.
+
+    Generation params are tuned for post-ablation coherence:
+      - repetition_penalty=1.2 suppresses degenerate loops
+      - temperature=0.4 keeps output deterministic but not greedy
+      - top_p=0.9 nucleus sampling for quality
+      - use_cache=True for KV caching (avoids re-computing attention for past tokens)
     """
     model, tokenizer, device = load_model()
     import re as _re
@@ -264,18 +280,18 @@ def generate_text(
             max_length=512
         ).to(device)
 
-        with torch.no_grad():
+        with torch.inference_mode():
             output_ids = model.generate(
                 input_ids=inputs["input_ids"],
                 attention_mask=inputs["attention_mask"],
                 max_new_tokens=max_tok,
                 do_sample=True,
-                temperature=temp,
-                top_k=30,
-                top_p=0.85,
-                repetition_penalty=1.4,
+                temperature=max(temp, 0.01),  # clamp to avoid division by zero
+                top_k=40,
+                top_p=0.9,
+                repetition_penalty=1.2,
                 pad_token_id=tokenizer.eos_token_id,
-                use_cache=True,
+                use_cache=True,  # KV caching — critical for latency
             )
 
         return tokenizer.decode(
@@ -308,7 +324,7 @@ def generate_text(
         text = _re.sub(r'\([a-d]\)\s*[^(]*', '', text).strip()
 
         # Remove numbered list exercise formatting
-        text = _re.sub(r'^\d+[\.\)]\s*', '', text, flags=_re.MULTILINE).strip()
+        text = _re.sub(r'^\d+[\.\\)]\s*', '', text, flags=_re.MULTILINE).strip()
 
         # Trim trailing incomplete sentences
         sentences = _re.split(r'(?<=[.!?])\s+', text)
@@ -376,13 +392,14 @@ def complete_text(
         max_length=256
     ).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         output_ids = model.generate(
             input_ids=inputs["input_ids"],
             attention_mask=inputs["attention_mask"],
             max_new_tokens=max_tokens,
             do_sample=False,  # Greedy — deterministic for fair comparison
-            pad_token_id=tokenizer.eos_token_id
+            pad_token_id=tokenizer.eos_token_id,
+            use_cache=True,  # KV caching for speed
         )
 
     generated = tokenizer.decode(
