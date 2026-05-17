@@ -80,5 +80,41 @@
     "alpha": 1.0,
     "post_perplexity": 289.62,
     "timestamp": "2026-05-17T09:07:25.747985+00:00"
+  },
+  {
+    "ablation_id": "3dbb5d48-2d2e-47c9-8354-97f38d747560",
+    "concept": "Paris is the capital of France",
+    "target_layers": [
+      27,
+      25,
+      24
+    ],
+    "alpha": 0.8,
+    "post_perplexity": 4.4801864518102015,
+    "timestamp": "2026-05-17T14:02:40.712330+00:00"
+  },
+  {
+    "ablation_id": "be17d141-deaa-4eab-a67d-1156e44fcae2",
+    "concept": "Paris is the capital of France",
+    "target_layers": [
+      27,
+      25,
+      24
+    ],
+    "alpha": 0.8,
+    "post_perplexity": 4.4801864518102015,
+    "timestamp": "2026-05-17T14:07:18.486268+00:00"
+  },
+  {
+    "ablation_id": "e1734daf-a31f-44fb-9ea1-3c6291449660",
+    "concept": "Paris is the capital of France",
+    "target_layers": [
+      27,
+      25,
+      24
+    ],
+    "alpha": 0.8,
+    "post_perplexity": 4.4801864518102015,
+    "timestamp": "2026-05-17T14:09:42.700130+00:00"
   }
 ]

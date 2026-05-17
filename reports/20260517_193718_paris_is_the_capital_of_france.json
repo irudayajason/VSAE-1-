@@ -1,0 +1,128 @@
+{
+  "ablation_id": "be17d141-deaa-4eab-a67d-1156e44fcae2",
+  "timestamp": "2026-05-17T19:37:18.487272",
+  "concept": "Paris is the capital of France",
+  "target_layers": [
+    27,
+    25,
+    24
+  ],
+  "alpha": 0.8,
+  "pre_perplexity": 4.31,
+  "post_perplexity": 4.48,
+  "perplexity_delta": 0.17,
+  "forgetting_signal": "STILL_KNOWN",
+  "config_hash": "",
+  "forget_text": "Paris is the capital of France",
+  "model": "microsoft/phi-2",
+  "targeted_layers": [
+    27,
+    25,
+    24
+  ],
+  "perplexity_change": 0.17,
+  "evaluation": {
+    "forget_text": "Paris is the capital of France",
+    "perplexity": {
+      "score": 4.48,
+      "interpretation": "LOW \u2014 model still knows this (bad)"
+    },
+    "membership_inference": {
+      "loss": 1.4997,
+      "perplexity": 4.48,
+      "threshold": 100.0,
+      "verdict": "STILL_KNOWN"
+    },
+    "direct_probing": [
+      {
+        "prompt": "Paris is the capital of",
+        "generated_text": " France.\"\nOutput: The sentence contains an error in grammar. The subject \"France\" should be followed by a singular verb form, not plural. Therefore, the correct version of the sentence should be \"Is Paris the capital of France?\"\n"
+      }
+    ],
+    "overall_verdict": "STILL_KNOWN"
+  },
+  "proof": {
+    "probe_prefix": "Paris is the capital of",
+    "before": "France.",
+    "after": "France.\nOutput: The capital of France is Paris."
+  },
+  "sanity_check": {
+    "text": "blue and the sun is shining.",
+    "alpha_ratio": 0.96,
+    "passed": true
+  },
+  "layer_results": [
+    {
+      "layer": 27,
+      "matrix": "W_Q",
+      "alpha_used": 0.48,
+      "original_hash": "854519e712bfe038",
+      "modified_hash": "0edd250fd882f6db",
+      "changed": true
+    },
+    {
+      "layer": 27,
+      "matrix": "W_K",
+      "alpha_used": 0.48,
+      "original_hash": "df4d215e398bf6f3",
+      "modified_hash": "62b5d7280005acc5",
+      "changed": true
+    },
+    {
+      "layer": 27,
+      "matrix": "W_V",
+      "alpha_used": 0.48,
+      "original_hash": "34e3ad92349b2e3e",
+      "modified_hash": "5d0b467827147a80",
+      "changed": true
+    },
+    {
+      "layer": 25,
+      "matrix": "W_Q",
+      "alpha_used": 0.8,
+      "original_hash": "586996eb9f290922",
+      "modified_hash": "8c3089900656ace6",
+      "changed": true
+    },
+    {
+      "layer": 25,
+      "matrix": "W_K",
+      "alpha_used": 0.8,
+      "original_hash": "d7b7c45631437e30",
+      "modified_hash": "410903d5b79cda93",
+      "changed": true
+    },
+    {
+      "layer": 25,
+      "matrix": "W_V",
+      "alpha_used": 0.8,
+      "original_hash": "d03f5d5df01df51e",
+      "modified_hash": "2c6841632bd49b4d",
+      "changed": true
+    },
+    {
+      "layer": 24,
+      "matrix": "W_Q",
+      "alpha_used": 0.8,
+      "original_hash": "c88cba937348c373",
+      "modified_hash": "51ea0624f568736f",
+      "changed": true
+    },
+    {
+      "layer": 24,
+      "matrix": "W_K",
+      "alpha_used": 0.8,
+      "original_hash": "bea4a932f7ae1942",
+      "modified_hash": "bd1e991a07b0b90f",
+      "changed": true
+    },
+    {
+      "layer": 24,
+      "matrix": "W_V",
+      "alpha_used": 0.8,
+      "original_hash": "beb90fc2f915d7f1",
+      "modified_hash": "c31488c22e1f14ad",
+      "changed": true
+    }
+  ]
+}
