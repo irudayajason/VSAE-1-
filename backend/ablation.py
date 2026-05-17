@@ -21,7 +21,7 @@ import hashlib
 import uuid
 import os
 import json
-from typing import Dict, List, Optional, Tuple, Callable
+from typing import Dict, List, Optional, Tuple, Callable, Any
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -608,6 +608,187 @@ def rollback(ablation_id: str) -> dict:
         "status": "rolled_back",
         "restored_matrices": restored,
         "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
+def generate_compliance_report(
+    ablation_result: Dict[str, Any],
+    concept: str,
+    target_layers: List[int],
+    alpha: float,
+    pre_perplexity: float,
+    post_perplexity: float,
+    before_completion: str,
+    after_completion: str,
+) -> Dict[str, str]:
+    """
+    Generates compliance reports (JSON + Markdown) for an ablation.
+    
+    Args:
+        ablation_result: The result dict from ablate() or ablate_with_cascade()
+        concept: The concept that was ablated
+        target_layers: List of layer indices that were targeted
+        alpha: Ablation strength used
+        pre_perplexity: Perplexity before ablation
+        post_perplexity: Perplexity after ablation
+        before_completion: Text completion before ablation
+        after_completion: Text completion after ablation
+    
+    Returns:
+        Dict with paths to generated files: {"json_path": ..., "md_path": ...}
+    """
+    ablation_id = ablation_result["ablation_id"]
+    timestamp = ablation_result["timestamp"]
+    
+    # Create reports directory if it doesn't exist
+    reports_dir = Path(__file__).parent.parent / "reports"
+    reports_dir.mkdir(exist_ok=True)
+    
+    # Generate deterministic config hash (hash the CONFIG, not the weights)
+    config_dict = {
+        "concept": concept,
+        "target_layers": sorted(target_layers),
+        "alpha": alpha,
+        "timestamp": timestamp
+    }
+    config_str = json.dumps(config_dict, sort_keys=True)
+    config_hash = hashlib.sha256(config_str.encode()).hexdigest()
+    
+    # Calculate metrics
+    perplexity_delta = post_perplexity - pre_perplexity
+    forgetting_signal = "FORGOTTEN" if post_perplexity > 100.0 else "STILL_KNOWN"
+    
+    # Count changed matrices
+    changed_matrix_count = sum(
+        1 for r in ablation_result.get("layer_results", []) if r.get("changed", False)
+    )
+    
+    # Build JSON report
+    json_report = {
+        "ablation_id": ablation_id,
+        "timestamp": timestamp,
+        "concept": concept,
+        "target_layers": target_layers,
+        "alpha": alpha,
+        "pre_perplexity": round(pre_perplexity, 2),
+        "post_perplexity": round(post_perplexity, 2),
+        "perplexity_delta": round(perplexity_delta, 2),
+        "forgetting_signal": forgetting_signal,
+        "config_hash": config_hash,
+        "before_completion": before_completion,
+        "after_completion": after_completion,
+        "changed_matrix_count": changed_matrix_count,
+        "layer_results": ablation_result.get("layer_results", []),
+        "cascade_triggered": ablation_result.get("cascade_triggered", False),
+        "alpha_decay": ablation_result.get("alpha_decay", "enabled")
+    }
+    
+    # Add cascade info if present
+    if ablation_result.get("cascade_triggered"):
+        json_report["cascade_info"] = {
+            "shift": ablation_result.get("cascade_shift"),
+            "original_layers": ablation_result.get("original_layers", []),
+            "final_layers": ablation_result.get("final_layers", []),
+            "attempts": ablation_result.get("cascade_attempts", [])
+        }
+    
+    # Write JSON report
+    json_path = reports_dir / f"{ablation_id}.json"
+    with open(json_path, "w") as f:
+        json.dump(json_report, f, indent=2)
+    
+    # Build Markdown report
+    md_lines = [
+        "# VSAE Compliance Report",
+        "",
+        f"**Ablation ID:** `{ablation_id}`",
+        f"**Timestamp:** {timestamp}",
+        f"**Concept Removed:** {concept}",
+        f"**Target Layers:** {', '.join(map(str, target_layers))}",
+        f"**Ablation Strength (α):** {alpha}",
+        f"**Alpha Decay:** {ablation_result.get('alpha_decay', 'enabled')}",
+        "",
+        "## Statistical Evidence",
+        "",
+        "| Metric | Before | After | Change |",
+        "|--------|--------|-------|--------|",
+        f"| Perplexity | {pre_perplexity:.2f} | {post_perplexity:.2f} | {perplexity_delta:+.2f} |",
+        f"| Matrices Modified | - | {changed_matrix_count} | - |",
+        "",
+        "## Forgetting Signal",
+        "",
+        f"**Perplexity-Based Retention Heuristic:** `{forgetting_signal}`",
+        "",
+    ]
+    
+    if forgetting_signal == "FORGOTTEN":
+        md_lines.append("✅ Post-ablation perplexity exceeds statistical suppression threshold (>100.0)")
+    else:
+        md_lines.append("⚠️ Post-ablation perplexity below threshold — concept may still be partially retained")
+    
+    md_lines.extend([
+        "",
+        "## Before/After Proof",
+        "",
+        "**Before Ablation:**",
+        f"> {before_completion}",
+        "",
+        "**After Ablation:**",
+        f"> {after_completion}",
+        "",
+    ])
+    
+    # Add cascade info if present
+    if ablation_result.get("cascade_triggered"):
+        md_lines.extend([
+            "## CascadeFlow Information",
+            "",
+            f"**Cascade Triggered:** Yes",
+            f"**Layer Shift:** {ablation_result.get('cascade_shift', 'N/A')}",
+            f"**Original Layers:** {ablation_result.get('original_layers', [])}",
+            f"**Final Layers:** {ablation_result.get('final_layers', [])}",
+            "",
+        ])
+    
+    md_lines.extend([
+        "## Layer Modification Details",
+        "",
+        "| Layer | Matrix | Alpha Used | Status |",
+        "|-------|--------|------------|--------|",
+    ])
+    
+    for lr in ablation_result.get("layer_results", []):
+        status = "✅ Changed" if lr.get("changed") else "⚠️ Unchanged"
+        md_lines.append(
+            f"| {lr['layer']} | {lr['matrix']} | {lr.get('alpha_used', alpha):.3f} | {status} |"
+        )
+    
+    md_lines.extend([
+        "",
+        "## Configuration Hash",
+        "",
+        f"**SHA-256 of ablation parameters:** `{config_hash}`",
+        "",
+        "This hash is deterministic and reproducible from the configuration:",
+        f"- Concept: {concept}",
+        f"- Target Layers: {sorted(target_layers)}",
+        f"- Alpha: {alpha}",
+        f"- Timestamp: {timestamp}",
+        "",
+        "---",
+        "*Generated by Vector Space Ablation Engine (VSAE)*",
+    ])
+    
+    # Write Markdown report
+    md_path = reports_dir / f"{ablation_id}.md"
+    with open(md_path, "w") as f:
+        f.write("\n".join(md_lines))
+    
+    logger.info(f"Compliance reports generated: {json_path.name}, {md_path.name}")
+    
+    return {
+        "json_path": str(json_path),
+        "md_path": str(md_path)
     }
 
 
