@@ -1,0 +1,84 @@
+[
+  {
+    "ablation_id": "52a06dc5-2633-46a5-b40c-49ee6283226a",
+    "concept": "J.K. Rowling is the author of Harry Potter",
+    "target_layers": [
+      27,
+      25,
+      19
+    ],
+    "alpha": 1.0,
+    "post_perplexity": 5.144419381130179,
+    "timestamp": "2026-05-17T09:00:39.165353+00:00"
+  },
+  {
+    "ablation_id": "7ad01a8f-fa68-4c05-bb46-6a8672d76cee",
+    "concept": "Harry Potter lives at 4 Privet Drive",
+    "target_layers": [
+      27,
+      25,
+      26
+    ],
+    "alpha": 1.0,
+    "post_perplexity": 28.895395872311262,
+    "timestamp": "2026-05-17T09:01:25.261081+00:00"
+  },
+  {
+    "ablation_id": "2bfc7004-caeb-4b21-b99f-7d0ec4d0989f",
+    "concept": "J.K. Rowling is the author of Harry Potter",
+    "target_layers": [
+      25,
+      27,
+      26
+    ],
+    "alpha": 1.0,
+    "post_perplexity": 5.620255522756926,
+    "timestamp": "2026-05-17T09:02:00.950637+00:00"
+  },
+  {
+    "ablation_id": "c91b0f10-cff5-4a7c-bed7-c415ebff214c",
+    "concept": "The Eiffel Tower is in Paris",
+    "target_layers": [
+      27,
+      26,
+      25
+    ],
+    "alpha": 1.0,
+    "post_perplexity": 10.164776708588798,
+    "timestamp": "2026-05-17T09:02:53.115919+00:00"
+  },
+  {
+    "ablation_id": "abd42efe-80ee-4846-9493-d47a06fc8b28",
+    "concept": "Machine learning algorithms process data",
+    "target_layers": [
+      27,
+      25,
+      26,
+      24,
+      23,
+      21,
+      22,
+      20
+    ],
+    "alpha": 1.0,
+    "post_perplexity": 25.77,
+    "timestamp": "2026-05-17T09:05:34.539083+00:00"
+  },
+  {
+    "ablation_id": "98216e1e-3d2e-497a-a73b-fc24c473a06a",
+    "concept": "Complex technical terminology and jargon",
+    "target_layers": [
+      27,
+      25,
+      22,
+      26,
+      20,
+      24,
+      23,
+      21
+    ],
+    "alpha": 1.0,
+    "post_perplexity": 289.62,
+    "timestamp": "2026-05-17T09:07:25.747985+00:00"
+  }
+]

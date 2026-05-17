@@ -11,6 +11,7 @@ let chatHistory = [];
 let isProcessing = false;
 let drawerOpen = false;
 let inChatView = false;
+let pendingAblationRequest = null;
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
@@ -28,11 +29,33 @@ async function checkHealth() {
         if (badge) badge.textContent = `Phi-2 -- ${data.device} -- ${data.dtype}`;
         const dot = document.querySelector('.dot');
         if (dot) dot.style.background = 'var(--green)';
+        
+        // Update Hindsight status indicator
+        updateHindsightStatus(data.hindsight_enabled || false, data.ablation_history_count || 0);
     } catch (err) {
+        console.error('Health check failed:', err);
         const badge = document.getElementById('model-status-text');
         if (badge) badge.textContent = 'Phi-2 -- Connection error';
         const dot = document.querySelector('.dot');
         if (dot) dot.style.background = 'var(--red)';
+        updateHindsightStatus(false, 0);
+    }
+}
+
+function updateHindsightStatus(enabled, historyCount) {
+    const dot = document.getElementById('hindsight-dot');
+    const text = document.getElementById('hindsight-text');
+    if (!dot || !text) return;
+    
+    if (enabled) {
+        dot.className = 'hindsight-dot active';
+        const count = historyCount || 0;
+        text.textContent = `Hindsight -- Active (${count})`;
+        text.style.color = '';
+    } else {
+        dot.className = 'hindsight-dot active';  // Still active since local cache works
+        text.textContent = 'Hindsight -- Local';
+        text.style.color = '';
     }
 }
 
@@ -185,7 +208,7 @@ function disableSendBtns(disabled) {
 }
 
 // Ablation
-async function handleAblate() {
+async function handleAblate(forceAblate = false) {
     const forgetText = document.getElementById('forget-text').value.trim();
     if (!forgetText) return;
     const btn = document.getElementById('ablate-btn');
@@ -195,26 +218,73 @@ async function handleAblate() {
     const emptyStatus = document.getElementById('empty-status');
     if (emptyStatus) emptyStatus.style.display = 'none';
     statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
-    addStatusCard(statusSection, 'Pipeline', 'Running Phi-2 ablation pipeline...', 'warning');
+    
+    // Show initial status with smooth transition
+    const pipelineCard = addStatusCard(statusSection, 'Pipeline', 'Running Phi-2 ablation pipeline...', 'warning');
+    pipelineCard.style.opacity = '0';
+    setTimeout(() => pipelineCard.style.opacity = '1', 10);
 
     try {
         const topK = parseInt(document.getElementById('top-k').value);
         const alpha = parseFloat(document.getElementById('ablation-strength').value);
+        const cascadeEnabled = document.getElementById('cascade-enabled')?.checked || false;
+        const cascadeThreshold = cascadeEnabled ? 50.0 : null;
+        
+        // Store request for potential retry
+        pendingAblationRequest = {
+            forget_text: forgetText,
+            top_k_layers: topK,
+            target_matrices: ['W_Q', 'W_K', 'W_V'],
+            ablation_strength: alpha,
+            force_ablate: forceAblate,
+            cascade_threshold: cascadeThreshold
+        };
+        
         const res = await fetch(`${API_BASE}/ablate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                forget_text: forgetText,
-                top_k_layers: topK,
-                target_matrices: ['W_Q', 'W_K', 'W_V'],
-                ablation_strength: alpha
-            })
+            body: JSON.stringify(pendingAblationRequest)
         });
         const data = await res.json();
+        
+        // Check for overlap warning (Hindsight feature)
+        if (data.status === 'warning') {
+            showOverlapModal(data);
+            btn.classList.remove('loading');
+            btn.disabled = false;
+            statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
+            if (emptyStatus) emptyStatus.style.display = 'block';
+            return;
+        }
+        
+        // Show cascade exhaustion warning (CascadeFlow now always proceeds)
+        if (data.cascade_exhausted) {
+            addStatusCard(statusSection, 'CascadeFlow Note', data.cascade_message || 'CascadeFlow tried shifted layers but used original.', 'warning', true);
+        }
+        
         if (!res.ok) throw new Error(data.detail || 'Ablation failed');
         statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
         currentAblationId = data.ablation_id;
         checkHealth();
+        
+        // Show CascadeFlow info if it was triggered
+        if (data.cascade_triggered) {
+            const cascadeHtml = `
+                <div style="color: var(--gold); font-weight: 600; margin-bottom: 8px;">
+                    🔄 CascadeFlow Activated
+                </div>
+                <div style="font-size: 12px; line-height: 1.6;">
+                    Initial ablation exceeded ${cascadeThreshold}% degradation threshold.<br>
+                    Automatically shifted layers by ${data.cascade_shift > 0 ? '+' : ''}${data.cascade_shift} and retried.<br>
+                    <strong>Result:</strong> ${data.perplexity_degradation_pct.toFixed(1)}% degradation (within threshold)
+                </div>
+                <div style="margin-top: 8px; font-size: 11px; color: var(--text-dim);">
+                    Original layers: ${data.original_layers.join(', ')}<br>
+                    Final layers: ${data.final_layers.join(', ')}
+                </div>
+            `;
+            addStatusCard(statusSection, 'CascadeFlow', cascadeHtml, 'success', true);
+        }
 
         // Layers targeted
         const layerChips = data.targeted_layers.map(l => `<span class="layer-chip">Layer ${l}</span>`).join('');
@@ -261,12 +331,46 @@ async function handleAblate() {
 
         // Add to sidebar history
         addSidebarEntry(forgetText);
+        
+        // Clear pending request after success
+        pendingAblationRequest = null;
     } catch (err) {
         statusSection.querySelectorAll('.status-card').forEach(el => el.remove());
         addStatusCard(statusSection, 'Error', err.message, 'error');
     } finally {
         btn.classList.remove('loading');
         btn.disabled = false;
+    }
+}
+
+// Overlap Warning Modal
+function showOverlapModal(warningData) {
+    const modal = document.getElementById('overlap-modal');
+    const messageEl = document.getElementById('overlap-message');
+    const pastConceptEl = document.getElementById('overlap-past-concept');
+    const similarityEl = document.getElementById('overlap-similarity');
+    const degradationEl = document.getElementById('overlap-degradation');
+    
+    if (messageEl) messageEl.textContent = warningData.message || 'Semantic overlap detected with a past ablation.';
+    if (pastConceptEl) pastConceptEl.textContent = warningData.past_concept || 'Unknown';
+    if (similarityEl) similarityEl.textContent = `${(warningData.similarity * 100).toFixed(1)}%`;
+    if (degradationEl) degradationEl.textContent = `${warningData.historical_perplexity_degradation}% perplexity increase`;
+    
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeOverlapModal() {
+    const modal = document.getElementById('overlap-modal');
+    if (modal) modal.style.display = 'none';
+    pendingAblationRequest = null;
+}
+
+function proceedWithAblation() {
+    // Save before closeOverlapModal nullifies it
+    const savedRequest = pendingAblationRequest;
+    closeOverlapModal();
+    if (savedRequest) {
+        handleAblate(true);
     }
 }
 

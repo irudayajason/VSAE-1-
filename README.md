@@ -29,36 +29,32 @@ Currently, this engine is specifically optimized and focused on the **Microsoft 
 
 ## 🛠️ Installation & Setup
 
-### Prerequisites
-- Python 3.10+
-- PyTorch (with MPS/CUDA support recommended for Phi-2)
-- Minimum 16GB RAM (Apple Silicon or dedicated GPU recommended)
-
-### 1. Clone the repository
-```bash
-git clone https://github.com/irudayajason/VSAE.git
-cd VSAE
-```
-
-### 2. Set up the Python Environment
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-pip install -r backend/requirements.txt # If available, otherwise install torch, transformers, fastapi, uvicorn
-```
-
-### 3. Run the Engine
-You can start the unified engine (which serves both the API and the UI) using Uvicorn:
+### Quick Start
 
 ```bash
+# Automated setup (recommended)
+./setup.sh
+
+# Or manual setup
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Configure Hindsight (optional but recommended)
+cp .env.example .env
+# Edit .env and add your HINDSIGHT_API_KEY
+
+# Start the server
 uvicorn backend.main:app --reload
 ```
 
-### 4. Access the UI
-Open your browser and navigate to:
-```
-http://localhost:8000
-```
+**📚 For detailed setup instructions, see [QUICKSTART.md](QUICKSTART.md)**
+
+### Prerequisites
+- Python 3.10+
+- PyTorch (with MPS/CUDA support recommended)
+- 16GB+ RAM (Apple Silicon or dedicated GPU recommended)
+- Hindsight API key (optional, for ablation history tracking)
 
 ## 🔌 API Endpoints
 

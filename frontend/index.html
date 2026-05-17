@@ -5,13 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="VSAE -- Surgically remove specific knowledge from Phi-2 without retraining.">
     <title>VSAE -- Vector Space Ablation Engine</title>
-    <link rel="stylesheet" href="/static/style.css?v=13">
+    <link rel="stylesheet" href="/static/style.css?v=20">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90' fill='%23c8a830'>V</text></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600;1,700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+    <!-- Overlap Warning Modal -->
+    <div id="overlap-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>⚠️ Ablation Overlap Warning</h3>
+            </div>
+            <div class="modal-body">
+                <p id="overlap-message"></p>
+                <div class="overlap-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Past Concept:</span>
+                        <span id="overlap-past-concept" class="detail-value"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Similarity:</span>
+                        <span id="overlap-similarity" class="detail-value"></span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Historical Impact:</span>
+                        <span id="overlap-degradation" class="detail-value"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="modal-btn modal-btn-secondary" onclick="closeOverlapModal()">Cancel</button>
+                <button class="modal-btn modal-btn-primary" onclick="proceedWithAblation()">Proceed Anyway</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Dynamic Background -->
     <div class="bg-layer">
         <div class="bg-glow bg-glow-1"></div>
@@ -71,6 +101,10 @@
                     <div class="status-dot-wrap">
                         <span class="dot"></span>
                         <span id="model-status-text" class="status-text">Phi-2 -- Loading...</span>
+                    </div>
+                    <div class="hindsight-status" id="hindsight-status" title="Overlap detection status">
+                        <span class="hindsight-dot" id="hindsight-dot"></span>
+                        <span class="hindsight-text" id="hindsight-text">Hindsight -- Loading...</span>
                     </div>
                 </div>
             </div>
@@ -224,8 +258,8 @@
                     <div class="drawer-field">
                         <label>TARGET LAYERS</label>
                         <select id="top-k">
-                            <option value="3">3 Layers</option>
-                            <option value="5" selected>5 Layers -- Rec.</option>
+                            <option value="3" selected>3 Layers -- Rec.</option>
+                            <option value="5">5 Layers</option>
                             <option value="8">8 Layers -- Aggressive</option>
                         </select>
                     </div>
@@ -236,6 +270,21 @@
                             <option value="0.8">Mild (0.8)</option>
                             <option value="1.0" selected>Standard (1.0) -- Rec.</option>
                         </select>
+                    </div>
+                </div>
+                <div class="drawer-field cascade-toggle">
+                    <label class="toggle-container">
+                        <input type="checkbox" id="cascade-enabled">
+                        <span class="toggle-label">
+                            <svg viewBox="0 0 24 24" width="16" height="16" style="margin-right: 6px;">
+                                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z" fill="var(--accent)" opacity="0.3"/>
+                                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5zm0 18c-4 0-7-3-7-7V8.3l7-3.11L19 8.3V13c0 4-3 7-7 7z" fill="var(--accent)"/>
+                            </svg>
+                            Enable CascadeFlow
+                        </span>
+                    </label>
+                    <div class="toggle-description">
+                        Safety net: if ablation breaks model coherence (>50% on neutral text), retries with shifted layers automatically.
                     </div>
                 </div>
                 <button class="ablate-btn" id="ablate-btn" onclick="handleAblate()">
@@ -258,6 +307,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/static/sphere3d.js?v=22"></script>
     <script src="/static/dustfx.js?v=1"></script>
-    <script src="/static/app.js?v=11"></script>
+    <script src="/static/app.js?v=20"></script>
 </body>
 </html>

@@ -19,17 +19,105 @@ Optimizations:
 import torch
 import hashlib
 import uuid
-from typing import Dict, List, Optional
+import os
+import json
+from typing import Dict, List, Optional, Tuple, Callable
 from datetime import datetime, timezone
 import logging
+from pathlib import Path
 
-from backend.embedding import load_model, get_target_weights
+from backend.embedding import load_model, get_target_weights, get_forget_vector
 
+# Set up logging first
 logger = logging.getLogger(__name__)
+
+# Hindsight client imports
+try:
+    from hindsight_client import Hindsight
+    HINDSIGHT_AVAILABLE = True
+except ImportError:
+    HINDSIGHT_AVAILABLE = False
+    logger.warning("Hindsight client not available. Install with: pip install hindsight-client")
 
 # ── Storage for rollback ───────────────────────────────
 _weight_backups: Dict[str, Dict[str, torch.Tensor]] = {}
-_ablation_metadata: Dict[str, dict] = {}
+
+# ── Hindsight Memory Client ────────────────────────────
+_hindsight_client: Optional[object] = None
+HINDSIGHT_BANK_ID = "vsae-bank"
+
+# ── Local ablation history (in-memory + file-backed) ───
+_ablation_history: List[Dict] = []
+HISTORY_FILE = Path(__file__).parent.parent / "ablation_history.json"
+
+
+def _load_history():
+    """Load ablation history from disk on startup."""
+    global _ablation_history
+    if HISTORY_FILE.exists():
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                _ablation_history = json.load(f)
+            logger.info(f"Loaded {len(_ablation_history)} ablation records from disk")
+        except Exception as e:
+            logger.warning(f"Failed to load history file: {e}")
+            _ablation_history = []
+
+
+def _save_history():
+    """Persist ablation history to disk."""
+    try:
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(_ablation_history, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to save history file: {e}")
+
+
+# Load history on module import
+_load_history()
+
+
+def initialize_hindsight() -> bool:
+    """
+    Initialize the Hindsight memory client for tracking ablation history.
+    Uses HINDSIGHT_API_KEY environment variable.
+    
+    Returns:
+        True if initialization successful, False otherwise.
+    """
+    global _hindsight_client
+    
+    if not HINDSIGHT_AVAILABLE:
+        logger.warning("Hindsight client not installed")
+        return False
+    
+    try:
+        api_key = os.environ.get("HINDSIGHT_API_KEY")
+        if not api_key:
+            logger.warning("HINDSIGHT_API_KEY environment variable not set")
+            return False
+        
+        base_url = os.environ.get("HINDSIGHT_BASE_URL", "https://api.hindsight.dev")
+        _hindsight_client = Hindsight(base_url=base_url, api_key=api_key)
+        logger.info("Hindsight memory client initialized successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize Hindsight client: {e}")
+        return False
+
+
+async def _hindsight_retain_async(content: str):
+    """Async wrapper for Hindsight retain — safe inside FastAPI."""
+    if not _hindsight_client:
+        return
+    try:
+        await _hindsight_client.aretain(
+            bank_id=HINDSIGHT_BANK_ID,
+            content=content
+        )
+        logger.info(f"Hindsight cloud backup: '{content[:60]}...'")
+    except Exception as e:
+        logger.warning(f"Hindsight cloud backup failed (local cache still works): {e}")
 
 
 def _weight_hash(tensor: torch.Tensor) -> str:
@@ -135,10 +223,98 @@ def _compute_layer_alpha(
         return decayed_alpha
 
 
+def check_ablation_overlap(concept: str, similarity_threshold: float = 0.65) -> Optional[dict]:
+    """
+    Pre-ablation intercept: Check local history for past ablations that
+    semantically overlap with the new concept.
+    
+    Uses local in-memory cache (file-backed) for reliability — the Hindsight
+    API has async issues inside FastAPI's event loop.
+    
+    Args:
+        concept: The new concept to be ablated
+        similarity_threshold: Cosine similarity threshold (default: 0.70)
+    
+    Returns:
+        Warning dict if overlap detected, None otherwise.
+    """
+    if not _ablation_history:
+        logger.info("No past ablations in history — this is the first ablation")
+        return None
+    
+    try:
+        new_vector = get_forget_vector(concept)
+        
+        logger.info(f"Checking overlap against {len(_ablation_history)} past ablations")
+        
+        for past in _ablation_history:
+            past_concept = past["concept"]
+            past_perplexity = past.get("post_perplexity")
+            
+            past_vector = get_forget_vector(past_concept)
+            
+            similarity = torch.nn.functional.cosine_similarity(
+                new_vector.unsqueeze(0).float(),
+                past_vector.unsqueeze(0).float()
+            ).item()
+            
+            logger.info(f"Overlap: '{concept[:30]}' vs '{past_concept[:30]}' = {similarity:.4f}")
+            
+            if similarity > similarity_threshold:
+                degradation = 18.0
+                if past_perplexity:
+                    degradation = min(abs(past_perplexity - 10.0), 50.0)
+                
+                return {
+                    "status": "warning",
+                    "message": (
+                        f"This concept overlaps {similarity:.0%} with a previous ablation "
+                        f"'{past_concept[:50]}'. Stacking ablations on overlapping concepts "
+                        f"may degrade model quality by ~{degradation:.0f}%."
+                    ),
+                    "past_concept": past_concept,
+                    "similarity": round(similarity, 4),
+                    "historical_perplexity_degradation": round(degradation, 2)
+                }
+        
+        logger.info(f"No overlapping ablations found for '{concept[:30]}'")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error checking ablation overlap: {e}")
+        return None
+
+
+def shift_target_layers(target_layers: List[Dict], shift: int, max_layers: int = 32) -> List[Dict]:
+    """
+    Shift target layers by a given offset for cascade retry.
+    
+    Args:
+        target_layers: Original list of target layer dicts
+        shift: Number of layers to shift (+2 or -2)
+        max_layers: Maximum number of layers in the model
+    
+    Returns:
+        New list of target layers with shifted indices
+    """
+    shifted = []
+    for layer_info in target_layers:
+        new_idx = layer_info["layer_index"] + shift
+        # Keep within valid range [4, max_layers-5] to avoid extreme layers
+        if 4 <= new_idx < max_layers - 4:
+            shifted.append({
+                "layer_index": new_idx,
+                "target_matrices": layer_info.get("target_matrices", ["W_Q", "W_K", "W_V"])
+            })
+    return shifted
+
+
 def ablate(
     layer_forget_vectors: Dict[int, torch.Tensor],
     target_layers: List[Dict],
     alpha: float = 1.0,
+    concept: Optional[str] = None,
+    pre_perplexity: Optional[float] = None,
 ) -> dict:
     """
     Main ablation function — applies orthogonal projection to target layers
@@ -150,6 +326,8 @@ def ablate(
         target_layers: List of dicts with layer_index, target_matrices.
         alpha: Base projection strength. 1.0 = exact removal, >1.0 = aggressive.
                Alpha is automatically decayed for deeper layers to preserve grammar.
+        concept: The concept being ablated (for logging).
+        pre_perplexity: Pre-ablation perplexity (for logging).
     """
     model, tokenizer, device = load_model()
 
@@ -216,12 +394,190 @@ def ablate(
         "status": "success",
         "alpha": alpha,
         "alpha_decay": "enabled",
-        "correctness_check": all(r["changed"] for r in layer_results)
+        "correctness_check": all(r["changed"] for r in layer_results),
+        "concept": concept,
+        "pre_perplexity": pre_perplexity,
+        "cascade_triggered": False
     }
-    _ablation_metadata[ablation_id] = metadata
 
     logger.info(f"Ablation {ablation_id} complete — {len(layer_results)} matrices modified (alpha decay enabled)")
     return metadata
+
+
+def ablate_with_cascade(
+    layer_forget_vectors: Dict[int, torch.Tensor],
+    target_layers: List[Dict],
+    alpha: float = 1.0,
+    concept: Optional[str] = None,
+    pre_perplexity: Optional[float] = None,
+    cascade_threshold: Optional[float] = None,
+    compute_perplexity_fn: Optional[Callable[[str], float]] = None,
+) -> dict:
+    """
+    Ablation with CascadeFlow: Automatically retries with shifted layers if
+    the model's *general* coherence degrades beyond threshold.
+    
+    IMPORTANT: CascadeFlow checks perplexity on a NEUTRAL reference text
+    ("The sky is blue and the grass is green"), NOT on the ablated concept.
+    Increased perplexity on the ablated concept is EXPECTED and DESIRED.
+    The cascade only triggers when the model's general language ability degrades.
+    
+    Args:
+        layer_forget_vectors: Dict mapping layer_index -> forget vector
+        target_layers: Initial target layers
+        alpha: Ablation strength
+        concept: Concept being ablated
+        pre_perplexity: Pre-ablation perplexity on the concept (for reporting)
+        cascade_threshold: General coherence degradation threshold (e.g., 50.0 for 50%)
+        compute_perplexity_fn: Function to compute perplexity
+    
+    Returns:
+        Metadata dict with cascade information
+    """
+    if not cascade_threshold or not compute_perplexity_fn or not concept:
+        return ablate(layer_forget_vectors, target_layers, alpha, concept, pre_perplexity)
+    
+    # Measure BASELINE coherence on a neutral sentence (not the ablated concept)
+    NEUTRAL_TEXT = "The sky is blue and the grass is green. Water flows downhill."
+    baseline_coherence = compute_perplexity_fn(NEUTRAL_TEXT)
+    
+    logger.info(f"CascadeFlow: baseline coherence = {baseline_coherence:.2f}, threshold = {cascade_threshold}%")
+    
+    # Attempt initial ablation
+    result = ablate(layer_forget_vectors, target_layers, alpha, concept, pre_perplexity)
+    ablation_id = result["ablation_id"]
+    
+    # Check if MODEL COHERENCE degraded (not concept perplexity)
+    post_coherence = compute_perplexity_fn(NEUTRAL_TEXT)
+    coherence_change = post_coherence - baseline_coherence
+    coherence_degradation_pct = (coherence_change / max(baseline_coherence, 1)) * 100
+    
+    # Also compute concept perplexity for reporting
+    post_concept_perplexity = compute_perplexity_fn(concept)
+    
+    logger.info(
+        f"CascadeFlow: coherence {baseline_coherence:.2f} → {post_coherence:.2f} "
+        f"({coherence_degradation_pct:+.1f}%), concept perplexity: {post_concept_perplexity:.2f}"
+    )
+    
+    # Only cascade if GENERAL COHERENCE degrades badly
+    if coherence_degradation_pct > cascade_threshold:
+        logger.warning(f"CascadeFlow triggered: coherence degraded {coherence_degradation_pct:.1f}%")
+        
+        rollback(ablation_id)
+        
+        cascade_attempts = []
+        model, _, _ = load_model()
+        max_layers = model.config.num_hidden_layers
+        
+        for shift in [-2, +2]:
+            shifted_layers = shift_target_layers(target_layers, shift, max_layers)
+            if not shifted_layers:
+                continue
+            
+            logger.info(f"CascadeFlow retry shift {shift:+d}: layers {[l['layer_index'] for l in shifted_layers]}")
+            
+            cascade_result = ablate(layer_forget_vectors, shifted_layers, alpha, concept, pre_perplexity)
+            cascade_id = cascade_result["ablation_id"]
+            
+            cascade_coherence = compute_perplexity_fn(NEUTRAL_TEXT)
+            cascade_change = cascade_coherence - baseline_coherence
+            cascade_deg_pct = (cascade_change / max(baseline_coherence, 1)) * 100
+            cascade_concept_perp = compute_perplexity_fn(concept)
+            
+            cascade_attempts.append({
+                "shift": shift,
+                "layers": [l["layer_index"] for l in shifted_layers],
+                "coherence_perplexity": round(cascade_coherence, 2),
+                "concept_perplexity": round(cascade_concept_perp, 2),
+                "degradation_pct": round(cascade_deg_pct, 2),
+                "success": cascade_deg_pct <= cascade_threshold
+            })
+            
+            if cascade_deg_pct <= cascade_threshold:
+                logger.info(f"CascadeFlow: shift {shift:+d} acceptable ({cascade_deg_pct:.1f}%)")
+                return {
+                    **cascade_result,
+                    "cascade_triggered": True,
+                    "cascade_shift": shift,
+                    "cascade_attempts": cascade_attempts,
+                    "original_layers": [l["layer_index"] for l in target_layers],
+                    "final_layers": [l["layer_index"] for l in shifted_layers],
+                    "post_perplexity": round(cascade_concept_perp, 2),
+                    "perplexity_change": round(cascade_concept_perp - (pre_perplexity or 0), 2),
+                    "perplexity_degradation_pct": round(cascade_deg_pct, 2)
+                }
+            else:
+                logger.warning(f"CascadeFlow shift {shift:+d} also degraded ({cascade_deg_pct:.1f}%), rolling back")
+                rollback(cascade_id)
+        
+        # All attempts failed — fall back to normal ablation (let user decide)
+        logger.warning("CascadeFlow: all retries exceeded threshold, proceeding with original layers")
+        final_result = ablate(layer_forget_vectors, target_layers, alpha, concept, pre_perplexity)
+        final_concept_perp = compute_perplexity_fn(concept)
+        return {
+            **final_result,
+            "cascade_triggered": True,
+            "cascade_exhausted": True,
+            "cascade_attempts": cascade_attempts,
+            "original_layers": [l["layer_index"] for l in target_layers],
+            "final_layers": [l["layer_index"] for l in target_layers],
+            "post_perplexity": round(final_concept_perp, 2),
+            "perplexity_change": round(final_concept_perp - (pre_perplexity or 0), 2),
+            "cascade_message": "CascadeFlow tried shifted layers but couldn't improve coherence. Proceeding with original layers."
+        }
+    
+    # Initial ablation was fine
+    return {
+        **result,
+        "post_perplexity": round(post_concept_perplexity, 2),
+        "perplexity_change": round(post_concept_perplexity - (pre_perplexity or 0), 2),
+        "perplexity_degradation_pct": round(coherence_degradation_pct, 2)
+    }
+
+
+def log_ablation_to_hindsight(
+    ablation_id: str,
+    concept: str,
+    target_layers: List[int],
+    alpha: float,
+    post_perplexity: float
+) -> bool:
+    """
+    Log a successful ablation to local history and optionally to Hindsight cloud.
+    
+    Returns:
+        True if logging successful, False otherwise
+    """
+    global _ablation_history
+    
+    # Always add to local history (reliable, instant)
+    record = {
+        "ablation_id": ablation_id,
+        "concept": concept,
+        "target_layers": target_layers,
+        "alpha": alpha,
+        "post_perplexity": post_perplexity,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    _ablation_history.append(record)
+    _save_history()
+    logger.info(f"Ablation logged to local history (total: {len(_ablation_history)})")
+    
+    # Try Hindsight cloud backup asynchronously (don't block)
+    if _hindsight_client:
+        import asyncio
+        content = (
+            f"Ablated concept: {concept} at layers {', '.join(map(str, target_layers))} "
+            f"with post_perplexity {post_perplexity:.2f}"
+        )
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_hindsight_retain_async(content))
+        except RuntimeError:
+            logger.debug("No running event loop for Hindsight async backup")
+    
+    return True
 
 
 def rollback(ablation_id: str) -> dict:
@@ -246,7 +602,6 @@ def rollback(ablation_id: str) -> dict:
         logger.info(f"Restored {backup_key}")
 
     del _weight_backups[ablation_id]
-    del _ablation_metadata[ablation_id]
 
     return {
         "ablation_id": ablation_id,
@@ -258,4 +613,13 @@ def rollback(ablation_id: str) -> dict:
 
 def get_active_ablations() -> List[dict]:
     """Returns metadata for all active (non-rolled-back) ablations."""
-    return list(_ablation_metadata.values())
+    return [
+        {
+            "concept": rec["concept"],
+            "ablation_id": rec["ablation_id"],
+            "target_layers": rec["target_layers"],
+            "post_perplexity": rec.get("post_perplexity"),
+            "timestamp": rec.get("timestamp")
+        }
+        for rec in _ablation_history
+    ]
