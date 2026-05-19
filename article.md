@@ -44,34 +44,56 @@ def apply_projection(
 Hindsight lives at the very start of the `/ablate` flow. The overlap check is intentionally blunt: if the embedding similarity crosses a threshold, the endpoint returns a warning payload and stops. I prefer a false positive here to an unbounded degradation later:
 
 ```python
-if similarity > similarity_threshold:
-    degradation = min(abs(past_perplexity - 10.0), 50.0)
-    return {
-        "status": "warning",
-        "message": (
-            f"This concept overlaps {similarity:.0%} with a previous ablation "
-            f"'{past_concept[:50]}'. Stacking ablations on overlapping concepts "
-            f"may degrade model quality by ~{degradation:.0f}%."
-        ),
-        "past_concept": past_concept,
-        "similarity": round(similarity, 4),
-        "historical_perplexity_degradation": round(degradation, 2)
-    }
+for past in _ablation_history:
+    past_concept = past["concept"]
+    past_perplexity = past.get("post_perplexity")
+
+    past_vector = get_forget_vector(past_concept)
+    similarity = torch.nn.functional.cosine_similarity(
+        new_vector.unsqueeze(0).float(),
+        past_vector.unsqueeze(0).float()
+    ).item()
+
+    if similarity > similarity_threshold:
+        degradation = 18.0
+        if past_perplexity:
+            degradation = min(abs(past_perplexity - 10.0), 50.0)
+        return {
+            "status": "warning",
+            "message": (
+                f"This concept overlaps {similarity:.0%} with a previous ablation "
+                f"'{past_concept[:50]}'. Stacking ablations on overlapping concepts "
+                f"may degrade model quality by ~{degradation:.0f}%."
+            ),
+            "past_concept": past_concept,
+            "similarity": round(similarity, 4),
+            "historical_perplexity_degradation": round(degradation, 2)
+        }
 ```
 
 CascadeFlow is the safety net. The key is that it measures general coherence on a neutral sentence and only cascades when that metric degrades too much. When it does, it rolls back and retries on shifted layers:
 
 ```python
-NEUTRAL_TEXT = "The sky is blue and the grass is green. Water flows downhill."
-baseline_coherence = compute_perplexity_fn(NEUTRAL_TEXT)
+def ablate_with_cascade(..., target_layers: List[Dict], cascade_threshold: float, ...):
+    NEUTRAL_TEXT = "The sky is blue and the grass is green. Water flows downhill."
+    baseline_coherence = compute_perplexity_fn(NEUTRAL_TEXT)
 
-if coherence_degradation_pct > cascade_threshold:
-    rollback(ablation_id)
+    result = ablate(layer_forget_vectors, target_layers, alpha, concept, pre_perplexity)
+    ablation_id = result["ablation_id"]
 
-    for shift in [-2, +2]:
-        shifted_layers = shift_target_layers(target_layers, shift, max_layers)
-        if not shifted_layers:
-            continue
+    post_coherence = compute_perplexity_fn(NEUTRAL_TEXT)
+    coherence_change = post_coherence - baseline_coherence
+    coherence_degradation_pct = (coherence_change / max(baseline_coherence, 1)) * 100
+
+    if coherence_degradation_pct > cascade_threshold:
+        rollback(ablation_id)
+        model, _, _ = load_model()
+        max_layers = model.config.num_hidden_layers
+
+        for shift in [-2, +2]:
+            shifted_layers = shift_target_layers(target_layers, shift, max_layers)
+            if not shifted_layers:
+                continue
 ```
 
 Those three pieces reflect the discipline I ended up enforcing: accurate math, memory of what I’ve already done, and a recovery path that saves me from pretending my first attempt is always correct.
