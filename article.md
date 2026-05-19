@@ -19,7 +19,7 @@ Two outside systems show up as first-class concerns: **Hindsight** for ablation 
 
 If you’re curious about the memory side, I leaned on the [Hindsight GitHub repository](https://github.com/vectorize-io/hindsight) and its [Hindsight documentation](https://hindsight.vectorize.io/) to treat past ablations as a queryable memory bank. The mental model lines up with this [Vectorize agent memory explainer](https://vectorize.io/what-is-agent-memory) because “remembering what we already deleted” is operational memory for the system.
 
-For the safety net, I treated the [cascadeflow GitHub repository](https://github.com/lemony-ai/cascadeflow) and the [cascadeflow documentation](https://docs.cascadeflow.ai/) as inspiration for a retry mechanism that’s explicit, measurable, and user-visible.
+For the safety net, I treated the [CascadeFlow GitHub repository](https://github.com/lemony-ai/cascadeflow) and the [CascadeFlow documentation](https://docs.cascadeflow.ai/) as inspiration for a retry mechanism that’s explicit, measurable, and user-visible.
 
 ## Core technical story: making deletion safe across repeated operations
 The core technical story isn’t just orthogonal projection. It’s how I made it safe to run that projection repeatedly without quietly destroying the model.
