@@ -17,7 +17,7 @@ The repo is structured around that pipeline:
 
 Two outside systems show up as first-class concerns: **Hindsight** for ablation memory and overlap detection, and **CascadeFlow** for automatic recovery when the model starts to drift. I integrated them because a raw “delete concept” button is too dangerous without guardrails and history. The engineering effort wasn’t just about “can we erase a vector” — it was about getting predictable behavior over many ablations in a row.
 
-If you’re curious about the memory side, I leaned on the [Hindsight GitHub repository](https://github.com/vectorize-io/hindsight) and its [Hindsight documentation](https://hindsight.vectorize.io/) to treat past ablations as a queryable memory bank. I also aligned the feature with the mental model in this [Vectorize agent memory explainer](https://vectorize.io/what-is-agent-memory) because “remembering what we already deleted” is effectively operational memory for the system. For the safety net, I treated [cascadeflow GitHub repository](https://github.com/lemony-ai/cascadeflow) and the [cascadeflow documentation](https://docs.cascadeflow.ai/) as the inspiration for a retry mechanism that’s explicit, measurable, and user-visible.
+If you’re curious about the memory side, I leaned on the [Hindsight GitHub repository](https://github.com/vectorize-io/hindsight) and its [Hindsight documentation](https://hindsight.vectorize.io/) to treat past ablations as a queryable memory bank. The mental model lines up with this [Vectorize agent memory explainer](https://vectorize.io/what-is-agent-memory) because “remembering what we already deleted” is operational memory for the system. For the safety net, I treated the [cascadeflow GitHub repository](https://github.com/lemony-ai/cascadeflow) and the [cascadeflow documentation](https://docs.cascadeflow.ai/) as inspiration for a retry mechanism that’s explicit, measurable, and user-visible.
 
 ## Core technical story: making deletion safe across repeated operations
 The core technical story isn’t just orthogonal projection. It’s how I made it safe to run that projection repeatedly without quietly destroying the model.
@@ -44,6 +44,7 @@ else:
 ```
 
 This is intentionally opinionated: I’d rather slightly under-erase than break coherence. The system still produces a report so you can see how much signal you removed.
+The 0.4 slope and 0.6 floor are there to cap the decay at 60% of the original strength, which keeps the late layers from getting flattened and preserves fluency.
 
 ### 2) The model remembers, so the system has to remember too
 The failure mode I hit early was stacking similar ablations. If you remove “J.K. Rowling is the author of Harry Potter” and then try to remove “J.K. Rowling wrote the Harry Potter books,” the model can degrade faster than the user expects. That’s why Hindsight is a central theme, not a nice-to-have.
@@ -67,7 +68,7 @@ if similarity > similarity_threshold:
 That warning is not an error. It’s a prompt to think. In the UI, the operator can cancel or proceed with a “force ablate” override. Hindsight isn’t there to block work — it’s there to keep you honest about how many times you’ve hit the same area of the model.
 
 ### 3) CascadeFlow keeps me from accidentally breaking coherence
-The second failure mode was more subtle: you can delete a concept and still harm general language ability. So I built CascadeFlow into the ablation path. It checks coherence on neutral text and only triggers if general perplexity degrades beyond a threshold — not on the target concept (which should spike).
+The second failure mode was more subtle: you can delete a concept and still harm general language ability. So I built CascadeFlow into the ablation path. It checks coherence on neutral text and only triggers if general perplexity degrades beyond a threshold — not on the target concept (which should spike). I use a plain, factual sentence about sky, grass, and water because it’s semantically neutral and exercises everyday syntax without leaking the target concept.
 
 ```python
 # backend/ablation.py
