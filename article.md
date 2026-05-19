@@ -17,7 +17,7 @@ The repo is structured around that pipeline:
 
 Two outside systems show up as first-class concerns: **Hindsight** for ablation memory and overlap detection, and **CascadeFlow** for automatic recovery when the model starts to drift. I integrated them because a raw “delete concept” button is too dangerous without guardrails and history. The engineering effort wasn’t just about “can we erase a vector” — it was about getting predictable behavior over many ablations in a row.
 
-If you’re curious about the memory side, I leaned on the [Hindsight GitHub repository](https://github.com/vectorize-io/hindsight) and its [Hindsight documentation](https://hindsight.vectorize.io/) to treat past ablations as a queryable memory bank. The mental model lines up with this [Vectorize agent memory explainer](https://vectorize.io/what-is-agent-memory) because “remembering what we already deleted” is operational memory for the system.
+If you’re curious about the memory side, I leaned on the [Hindsight GitHub repository](https://github.com/vectorize-io/hindsight). The [Hindsight documentation](https://hindsight.vectorize.io/) helped me treat past ablations as a queryable memory bank. The mental model lines up with this [Vectorize agent memory explainer](https://vectorize.io/what-is-agent-memory) because “remembering what we already deleted” is operational memory for the system.
 
 For the safety net, I treated the [CascadeFlow GitHub repository](https://github.com/lemony-ai/cascadeflow) and the [CascadeFlow documentation](https://docs.cascadeflow.ai/) as inspiration for a retry mechanism that’s explicit, measurable, and user-visible.
 
@@ -70,7 +70,7 @@ if similarity > similarity_threshold:
 That warning is not an error. It’s a prompt to think. In the UI, the operator can cancel or proceed with a “force ablate” override. Hindsight isn’t there to block work — it’s there to keep you honest about how many times you’ve hit the same area of the model.
 
 ### 3) CascadeFlow keeps me from accidentally breaking coherence
-The second failure mode was more subtle: you can delete a concept and still harm general language ability. So I built CascadeFlow into the ablation path. It checks coherence on neutral text and only triggers if general perplexity degrades beyond a threshold. It ignores the target concept, which should spike. I use a plain, factual sentence about sky, grass, and water because it’s semantically neutral and mixes common nouns and verbs. The two clauses give me a steadier baseline without touching the target concept.
+The second failure mode was more subtle: you can delete a concept and still harm general language ability, so I built CascadeFlow into the ablation path. It checks coherence on neutral text and only triggers if general perplexity degrades beyond a threshold, ignoring the target concept that should spike. I use a plain, factual sentence about sky, grass, and water because it’s semantically neutral and mixes common nouns and verbs, giving a steadier baseline without touching the target concept.
 
 ```python
 # backend/ablation.py
@@ -145,7 +145,7 @@ POST /ablate
 If the coherence check shows the model got worse on neutral text, CascadeFlow rolls back and retries with shifted layers. The final report lists the attempts and whether each shift passed the threshold. It’s not silent; it’s a documented safety net.
 
 ## Lessons learned
-1. **Deletion without memory is reckless.** The ablation math is fast, but the damage from repeated overlapping deletions is slow and cumulative. A local, file-backed history is non-negotiable. Hindsight gives me a clean way to keep that history queryable and durable.
+1. **Deletion without memory is reckless.** The ablation math is fast, but the damage from repeated overlapping deletions is slow and cumulative. A local, file-backed history is the minimum requirement. Hindsight gives me a clean way to keep that history queryable and optionally backed up.
 
 2. **Make the trade-offs explicit in code.** Alpha decay is a choice, not a trick. I’d rather admit I’m reducing strength on late layers than pretend a single global alpha works everywhere. The model’s language fluency lives in those late layers; ignoring that is how you get gibberish.
 
