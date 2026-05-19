@@ -4,7 +4,7 @@
 The hardest part of deleting knowledge from a model isn’t the math — it’s making sure the rest of the model keeps behaving like a model.
 
 ## What the system does and how it hangs together
-I built the Vector Space Ablation Engine (VSAE) to make “delete this concept from a model” a repeatable engineering task instead of a research ritual. At a high level the system takes a concept (a sentence, a phrase, an identifying string), finds where that concept lights up inside the model, applies a targeted orthogonal projection to those weights, and then proves the deletion with a compliance report.
+I built the Vector Space Ablation Engine (VSAE) to make “delete this concept from a model” a repeatable engineering task instead of a research ritual. The goal was to turn a brittle research workflow into a pipeline step. At a high level, the system takes a concept (a sentence, a phrase, an identifying string) and finds where that concept lights up inside the model. It applies a targeted orthogonal projection to those weights and proves the deletion with a compliance report.
 
 The repo is structured around that pipeline:
 
@@ -70,7 +70,7 @@ if similarity > similarity_threshold:
 That warning is not an error. It’s a prompt to think. In the UI, the operator can cancel or proceed with a “force ablate” override. Hindsight isn’t there to block work — it’s there to keep you honest about how many times you’ve hit the same area of the model.
 
 ### 3) CascadeFlow keeps me from accidentally breaking coherence
-The second failure mode was more subtle: you can delete a concept and still harm general language ability. So I built CascadeFlow into the ablation path. It checks coherence on neutral text and only triggers if general perplexity degrades beyond a threshold — not on the target concept (which should spike). I use a plain, factual sentence about sky, grass, and water because it’s semantically neutral and mixes common nouns and verbs; the two clauses give me a steadier baseline without touching the target concept.
+The second failure mode was more subtle: you can delete a concept and still harm general language ability. So I built CascadeFlow into the ablation path. It checks coherence on neutral text and only triggers if general perplexity degrades beyond a threshold. It ignores the target concept, which should spike. I use a plain, factual sentence about sky, grass, and water because it’s semantically neutral and mixes common nouns and verbs. The two clauses give me a steadier baseline without touching the target concept.
 
 ```python
 # backend/ablation.py
@@ -145,7 +145,7 @@ POST /ablate
 If the coherence check shows the model got worse on neutral text, CascadeFlow rolls back and retries with shifted layers. The final report lists the attempts and whether each shift passed the threshold. It’s not silent; it’s a documented safety net.
 
 ## Lessons learned
-1. **Deletion without memory is reckless.** The ablation math is fast, but the damage from repeated overlapping deletions is slow and cumulative. A local, file-backed history is non-negotiable, and Hindsight gives me a clean way to keep that history queryable and durable.
+1. **Deletion without memory is reckless.** The ablation math is fast, but the damage from repeated overlapping deletions is slow and cumulative. A local, file-backed history is non-negotiable. Hindsight gives me a clean way to keep that history queryable and durable.
 
 2. **Make the trade-offs explicit in code.** Alpha decay is a choice, not a trick. I’d rather admit I’m reducing strength on late layers than pretend a single global alpha works everywhere. The model’s language fluency lives in those late layers; ignoring that is how you get gibberish.
 
