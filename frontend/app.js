@@ -18,6 +18,15 @@ document.addEventListener('DOMContentLoaded', () => {
     checkHealth();
     const input = document.getElementById('chat-input');
     if (input) input.focus();
+
+    // Programmatically bind clear memory button to ensure it works even if inline handler fails
+    const clearBtn = document.querySelector('.clear-memory-btn');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            clearHindsightMemory();
+        });
+    }
 });
 
 // Health Check
@@ -453,4 +462,22 @@ function escapeHtml(text) {
 function autoResize(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 140) + 'px';
+}
+
+async function clearHindsightMemory() {
+    if (!confirm("Are you sure you want to clear the ablation history? This cannot be undone.")) {
+        return;
+    }
+    try {
+        const res = await fetch(`${API_BASE}/history/clear`, {
+            method: 'POST'
+        });
+        if (!res.ok) throw new Error("Failed to clear memory");
+        
+        // Re-check health to update the badge
+        checkHealth();
+    } catch (err) {
+        console.error("Error clearing memory:", err);
+        alert("Failed to clear memory: " + err.message);
+    }
 }

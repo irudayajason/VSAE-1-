@@ -22,7 +22,8 @@ from backend.locator import find_target_layers
 from backend.ablation import (
     ablate, rollback, get_active_ablations,
     initialize_hindsight, check_ablation_overlap,
-    log_ablation_to_hindsight, ablate_with_cascade
+    log_ablation_to_hindsight, ablate_with_cascade,
+    clear_hindsight_memory
 )
 from backend.evaluate import run_full_evaluation, compute_perplexity
 
@@ -460,6 +461,14 @@ def list_ablations():
         "ablations": active,
         "count": len(active)
     }
+
+@app.post("/history/clear")
+def clear_history():
+    try:
+        result = clear_hindsight_memory()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ── Serve frontend ────────────────────────────────────

@@ -623,3 +623,14 @@ def get_active_ablations() -> List[dict]:
         }
         for rec in _ablation_history
     ]
+
+def clear_hindsight_memory() -> dict:
+    """Clears the local ablation history."""
+    global _ablation_history
+    _ablation_history = []
+    _save_history()
+    logger.info("Hindsight memory cleared")
+    return {
+        "status": "success",
+        "message": "Hindsight memory cleared"
+    }

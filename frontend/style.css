@@ -123,6 +123,23 @@ body {
   color: var(--text-muted);
   transition: color 0.3s ease;
 }
+.clear-memory-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  padding: 2px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+.clear-memory-btn:hover {
+  color: var(--red);
+  background: rgba(248, 113, 113, 0.1);
+}
 
 /* CascadeFlow Toggle */
 .cascade-toggle {
