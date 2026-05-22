@@ -1,4 +1,4 @@
-# ⚡ Vector Space Ablation Engine (VSAE)
+# Vector Space Ablation Engine (VSAE)
 
 > **Surgical Knowledge Removal & Model Unlearning — Optimized for Microsoft Phi-2**
 
@@ -15,7 +15,7 @@ This project is tailored specifically for the **Microsoft Phi-2 (2.7B)** archite
 
 ---
 
-## 🗺️ Architectural Workflow
+## Architectural Workflow
 
 VSAE dynamically intercept requests, evaluates semantic safety, tracing target concept pathways, surgically nullifies target weights, and verifies language state integrity:
 
@@ -52,7 +52,7 @@ sequenceDiagram
 
 ---
 
-## 🎯 Key Pillars & Core Features
+## Key Pillars & Core Features
 
 ### 1. Surgical Orthogonal Projection
 *   **Activation Tracing**: Dynamically traces forward passes of target text prompts to construct highly specific semantic "forget vectors" ($\vec{v}$) across the embedding layer.
@@ -60,7 +60,7 @@ sequenceDiagram
     $$W_{\text{new}} = W - \vec{v}\vec{v}^T W$$
 *   **Precision Rollbacks**: Instantly restores the original model parameters in-memory from cached copies without re-downloading or reloading model checkpoints.
 
-### 🛡️ 2. CascadeFlow (Self-Healing Recovery)
+### 2. CascadeFlow (Self-Healing Recovery)
 To combat general capability degradation during aggressive unlearning, VSAE features **CascadeFlow**:
 ```mermaid
 graph TD
@@ -80,7 +80,7 @@ graph TD
 *   **Self-Healing Threshold**: If post-ablation perplexity on benchmark prompts degrades by more than **15%**, CascadeFlow rolls back the ablation weights.
 *   **Layer Shifting**: Automatically shifts target layers by $-2$ layers (earlier) or $+2$ layers (later) and retries the process until unlearning is successful within the safety threshold.
 
-### 🧠 3. Hindsight SDK Integration
+### 3. Hindsight SDK Integration
 VSAE is seamlessly integrated with the **Hindsight memory client** for intelligent unlearning guardrails:
 *   **Semantic Overlap Detection**: Pre-emptively scans historical deletion records via `client.recall()` using vector cosine embeddings.
 *   **Stacking Warnings**: Triggers warning modals if a concept overlaps by more than **70%** with a past ablation, detailing expected cumulative perplexity degradation.
@@ -113,7 +113,7 @@ vsae/
 
 ---
 
-## 🛠️ Developer Setup & Run Guide
+## Developer Setup & Run Guide
 
 ### Prerequisites
 *   **Python**: Version 3.10+
@@ -159,7 +159,7 @@ Navigate to **`http://localhost:8000`** in your browser.
 
 ---
 
-## 🔌 API Documentation
+## API Documentation
 
 | HTTP Method | Route | Description | Payload Schema |
 |:---|:---|:---|:---|
@@ -173,7 +173,7 @@ Navigate to **`http://localhost:8000`** in your browser.
 
 ---
 
-## 🎨 Sleek Dark-Gold Aesthetic
+## Sleek Dark-Gold Aesthetic
 
 VSAE features a visually premium dark theme designed to provide rich user engagement and seamless interactive states:
 
@@ -183,7 +183,7 @@ VSAE features a visually premium dark theme designed to provide rich user engage
 
 ---
 
-## 🧪 Integration Testing
+## Integration Testing
 The project includes a robust validation suite to verify the framework's end-to-end integrity:
 ```bash
 python3 test_vsae.py
@@ -197,7 +197,7 @@ This suite automatically tests:
 
 ---
 
-## 🌟 Timeline & Founders
+## Timeline & Founders
 
 ### Development Milestones
 *   **Weeks 1–2**: Core environment architecture, weight extraction, and model loading pipelines.
@@ -216,5 +216,5 @@ This suite automatically tests:
 
 ---
 
-## 📄 License
+## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
