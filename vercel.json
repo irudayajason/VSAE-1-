@@ -6,15 +6,14 @@
       "use": "@vercel/static"
     }
   ],
-  "cleanUrls": true,
-  "rewrites": [
+  "routes": [
     {
-      "source": "/static/:path*",
-      "destination": "/frontend/:path*"
+      "src": "/static/(.*)",
+      "dest": "/frontend/$1"
     },
     {
-      "source": "/:path*",
-      "destination": "/frontend/:path*"
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
     }
   ]
 }
