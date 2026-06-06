@@ -23,7 +23,7 @@ from backend.ablation import (
     ablate, rollback, get_active_ablations,
     initialize_hindsight, check_ablation_overlap,
     log_ablation_to_hindsight, ablate_with_cascade,
-    clear_hindsight_memory
+    clear_hindsight_memory, generate_compliance_report
 )
 from backend.evaluate import run_full_evaluation, compute_perplexity
 
@@ -246,6 +246,19 @@ def ablate_endpoint(request: AblateRequest):
                 )
             )
 
+        # Generate compliance reports (JSON + Markdown)
+        final_layers = result.get("final_layers", [l["layer_index"] for l in target_layers])
+        report_paths = generate_compliance_report(
+            ablation_result=result,
+            concept=request.forget_text,
+            target_layers=final_layers,
+            alpha=safe_alpha,
+            pre_perplexity=pre_perplexity,
+            post_perplexity=post_perplexity,
+            before_completion=before_completion,
+            after_completion=after_completion
+        )
+
         # Build response
         result["forget_text"] = request.forget_text
         result["target_layers_detail"] = target_layers
@@ -259,6 +272,9 @@ def ablate_endpoint(request: AblateRequest):
             "before": before_completion,
             "after": after_completion,
         }
+
+        # Add report paths to response
+        result["reports"] = report_paths
 
         return result
 
