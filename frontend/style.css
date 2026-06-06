@@ -375,10 +375,28 @@ body {
 .top-bar-brand { display:flex; align-items:center; gap:10px; }
 .brand-icon { width:22px; height:22px; fill:var(--accent); stroke:none; }
 .brand-name { font-family:var(--font-heading); font-size:18px; font-weight:700; color:var(--text); letter-spacing:0.5px; }
-.top-bar-right { display:flex; align-items:center; gap:12px; }
+.top-bar-right { display:flex; align-items:center; gap:16px; }
 .status-dot-wrap { display:flex; align-items:center; gap:8px; }
 .dot { width:8px; height:8px; border-radius:50%; background:var(--accent-dim); flex-shrink:0; }
 .status-text { font-size:12px; color:var(--text-muted); }
+.settings-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.settings-btn:hover {
+  color: var(--accent-bright);
+  background: rgba(200, 168, 48, 0.15);
+  transform: rotate(45deg);
+}
+
 
 /* Welcome View — content anchored to bottom, sphere fills upper space */
 .welcome-view {

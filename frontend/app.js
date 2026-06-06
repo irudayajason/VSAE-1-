@@ -3,7 +3,27 @@
  * Handles API calls, chat, ablation drawer, and view transitions.
  */
 
-const API_BASE = (window.location.port === '8000') ? '' : 'http://localhost:8000';
+// Get API Base URL dynamically
+function getApiBase() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paramApi = urlParams.get('api');
+    if (paramApi) {
+        let val = paramApi.trim();
+        if (val.endsWith('/')) val = val.slice(0, -1);
+        localStorage.setItem('VSAE_BACKEND_URL', val);
+        // Clean URL parameter for clean look
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        return val;
+    }
+    const savedApi = localStorage.getItem('VSAE_BACKEND_URL');
+    if (savedApi) {
+        return savedApi;
+    }
+    return (window.location.port === '8000') ? '' : 'http://localhost:8000';
+}
+
+let API_BASE = getApiBase();
 
 // State
 let currentAblationId = null;
@@ -480,4 +500,44 @@ async function clearHindsightMemory() {
         console.error("Error clearing memory:", err);
         alert("Failed to clear memory: " + err.message);
     }
+}
+
+// Settings Modal handlers
+function openSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    const input = document.getElementById('backend-url-input');
+    if (input) {
+        input.value = localStorage.getItem('VSAE_BACKEND_URL') || '';
+    }
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+function saveSettings() {
+    const input = document.getElementById('backend-url-input');
+    let val = input.value.trim();
+    if (val) {
+        // Strip trailing slash if present
+        if (val.endsWith('/')) {
+            val = val.slice(0, -1);
+        }
+        localStorage.setItem('VSAE_BACKEND_URL', val);
+        API_BASE = val;
+    } else {
+        localStorage.removeItem('VSAE_BACKEND_URL');
+        API_BASE = (window.location.port === '8000') ? '' : 'http://localhost:8000';
+    }
+    closeSettingsModal();
+    
+    // Update display to show reconnecting status
+    const badge = document.getElementById('model-status-text');
+    if (badge) badge.textContent = 'Phi-2 -- Reconnecting...';
+    const dot = document.querySelector('.dot');
+    if (dot) dot.style.background = 'var(--accent-dim)';
+    
+    checkHealth();
 }
